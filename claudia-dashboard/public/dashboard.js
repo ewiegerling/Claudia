@@ -15,6 +15,7 @@ const state = {
   selectedAtlasNode: null,
   projects: null,
   dreams: null,
+  voiceStatus: null,
   view: 'overview',
   live: true,
   loading: false,
@@ -25,6 +26,29 @@ const state = {
   paletteResults: [],
   paletteIndex: 0,
   lastUpdated: null,
+};
+
+const voice = {
+  stream: null,
+  context: null,
+  source: null,
+  processor: null,
+  silentGain: null,
+  recording: false,
+  recordingChunks: [],
+  recordingSamples: 0,
+  recordingStartedAt: 0,
+  quietForMs: 0,
+  wakeEnabled: false,
+  wakeChunks: [],
+  wakeSamples: 0,
+  wakeBusy: false,
+  requestController: null,
+  speechToken: 0,
+  level: 0,
+  levelHistory: Array.from({ length: 72 }, () => 0),
+  animationFrame: null,
+  conversation: [],
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -568,6 +592,399 @@ function renderDreams() {
   }
 }
 
+function setVoiceState(kind, title, copy) {
+  const stage = $('#voice-stage');
+  if (!stage) return;
+  stage.dataset.voiceState = kind;
+  setText('#voice-state-label', title);
+  setText('#voice-live-title', title);
+  setText('#voice-live-copy', copy);
+  const main = $('#voice-main-button');
+  const stop = $('#voice-stop-button');
+  const label = $('#voice-main-label');
+  main.disabled = kind === 'transcribing' || kind === 'thinking';
+  if (kind === 'listening') label.textContent = 'Send recording';
+  else if (kind === 'speaking') label.textContent = 'Talk over Claudia';
+  else if (kind === 'thinking') label.textContent = 'Claudia is thinking';
+  else if (kind === 'transcribing') label.textContent = 'Transcribing locally';
+  else label.textContent = 'Start talking';
+  stop.hidden = !['thinking', 'speaking', 'transcribing'].includes(kind);
+}
+
+function renderVoiceStatus() {
+  const status = state.voiceStatus;
+  const badge = $('#voice-runtime-badge');
+  if (!status || !badge) return;
+  const microphoneSupported = Boolean(window.isSecureContext && navigator.mediaDevices?.getUserMedia);
+  const available = status.available && microphoneSupported;
+  badge.classList.toggle('offline', !available);
+  setText('#voice-runtime-label', available ? 'Voice runtime online' : 'Voice runtime limited');
+  setText('#voice-runtime-detail', [
+    status.transcription ? 'Whisper ready' : 'Whisper offline',
+    status.agent ? 'OpenClaw ready' : 'OpenClaw offline',
+    microphoneSupported ? 'secure microphone' : 'microphone unavailable',
+  ].join(' · '));
+  if (!available) setVoiceState('idle', 'Voice input unavailable', microphoneSupported ? 'The local voice services are not ready.' : 'Open this dashboard over HTTPS in a browser with microphone support.');
+  $('#voice-main-button').disabled = !available;
+  $('#voice-wake-toggle').disabled = !available;
+}
+
+async function loadVoiceStatus() {
+  try {
+    state.voiceStatus = await fetchJson('/api/voice/status');
+  } catch {
+    state.voiceStatus = { available: false, transcription: false, agent: false };
+  }
+  renderVoiceStatus();
+}
+
+function drawVoiceWaveform() {
+  const canvas = $('#voice-waveform');
+  if (!canvas) return;
+  const context = canvas.getContext('2d');
+  const width = canvas.width;
+  const height = canvas.height;
+  voice.levelHistory.push(voice.level);
+  voice.levelHistory = voice.levelHistory.slice(-72);
+  context.clearRect(0, 0, width, height);
+  const gradient = context.createLinearGradient(0, 0, width, 0);
+  gradient.addColorStop(0, 'rgba(185,167,255,.05)');
+  gradient.addColorStop(.5, 'rgba(113,239,195,.85)');
+  gradient.addColorStop(1, 'rgba(185,167,255,.05)');
+  context.strokeStyle = gradient;
+  context.lineWidth = 3;
+  context.shadowBlur = 14;
+  context.shadowColor = 'rgba(113,239,195,.35)';
+  context.beginPath();
+  voice.levelHistory.forEach((level, index) => {
+    const x = index / Math.max(1, voice.levelHistory.length - 1) * width;
+    const phase = Math.sin(index * .72) * Math.max(2, level * height * 1.9);
+    const y = height / 2 + phase;
+    if (!index) context.moveTo(x, y); else context.lineTo(x, y);
+  });
+  context.stroke();
+  context.shadowBlur = 0;
+  context.strokeStyle = 'rgba(255,255,255,.05)';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(0, height / 2);
+  context.lineTo(width, height / 2);
+  context.stroke();
+  voice.level *= .88;
+  voice.animationFrame = requestAnimationFrame(drawVoiceWaveform);
+}
+
+function downsampleAudio(chunks, inputRate, outputRate = 16_000) {
+  const inputLength = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const input = new Float32Array(inputLength);
+  let writeOffset = 0;
+  for (const chunk of chunks) { input.set(chunk, writeOffset); writeOffset += chunk.length; }
+  if (inputRate === outputRate) return input;
+  const ratio = inputRate / outputRate;
+  const output = new Float32Array(Math.max(1, Math.floor(input.length / ratio)));
+  for (let outputIndex = 0; outputIndex < output.length; outputIndex += 1) {
+    const start = Math.floor(outputIndex * ratio);
+    const end = Math.min(input.length, Math.floor((outputIndex + 1) * ratio));
+    let sum = 0;
+    for (let inputIndex = start; inputIndex < end; inputIndex += 1) sum += input[inputIndex];
+    output[outputIndex] = sum / Math.max(1, end - start);
+  }
+  return output;
+}
+
+function encodePcmWav(chunks, inputRate) {
+  const samples = downsampleAudio(chunks, inputRate);
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeAscii = (offset, text) => [...text].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
+  writeAscii(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeAscii(8, 'WAVE');
+  writeAscii(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 16_000, true);
+  view.setUint32(28, 32_000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, index) => {
+    const clamped = Math.max(-1, Math.min(1, sample));
+    view.setInt16(44 + index * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+  });
+  return buffer;
+}
+
+function stopAudioInput() {
+  voice.processor?.disconnect();
+  voice.source?.disconnect();
+  voice.silentGain?.disconnect();
+  voice.stream?.getTracks().forEach((track) => track.stop());
+  voice.context?.close().catch(() => {});
+  voice.stream = null;
+  voice.context = null;
+  voice.source = null;
+  voice.processor = null;
+  voice.silentGain = null;
+}
+
+function audioFrame(event) {
+  const samples = event.inputBuffer.getChannelData(0);
+  const copy = new Float32Array(samples);
+  let energy = 0;
+  for (const sample of copy) energy += sample * sample;
+  const rms = Math.sqrt(energy / copy.length);
+  voice.level = Math.min(1, rms * 7.5);
+  const frameMs = copy.length / voice.context.sampleRate * 1000;
+  if (voice.recording) {
+    voice.recordingChunks.push(copy);
+    voice.recordingSamples += copy.length;
+    voice.quietForMs = rms < .012 ? voice.quietForMs + frameMs : 0;
+    const elapsed = performance.now() - voice.recordingStartedAt;
+    if ((elapsed > 1_150 && voice.quietForMs > 1_050) || elapsed > 30_000) queueMicrotask(() => finishVoiceRecording());
+    return;
+  }
+  if (voice.wakeEnabled && !voice.wakeBusy && $('#voice-stage')?.dataset.voiceState === 'idle') {
+    voice.wakeChunks.push(copy);
+    voice.wakeSamples += copy.length;
+    if (voice.wakeSamples >= voice.context.sampleRate * 3.2) queueMicrotask(checkWakePhrase);
+  }
+}
+
+async function ensureAudioInput() {
+  if (voice.stream?.active && voice.context) {
+    if (voice.context.state === 'suspended') await voice.context.resume();
+    return;
+  }
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access requires HTTPS and a supported browser.');
+  voice.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+  const AudioEngine = window.AudioContext || window.webkitAudioContext;
+  voice.context = new AudioEngine({ latencyHint: 'interactive' });
+  await voice.context.resume();
+  voice.source = voice.context.createMediaStreamSource(voice.stream);
+  voice.processor = voice.context.createScriptProcessor(4096, 1, 1);
+  voice.silentGain = voice.context.createGain();
+  voice.silentGain.gain.value = 0;
+  voice.processor.onaudioprocess = audioFrame;
+  voice.source.connect(voice.processor);
+  voice.processor.connect(voice.silentGain);
+  voice.silentGain.connect(voice.context.destination);
+}
+
+function playWakeChime() {
+  if (!voice.context) return;
+  const oscillator = voice.context.createOscillator();
+  const gain = voice.context.createGain();
+  oscillator.frequency.setValueAtTime(520, voice.context.currentTime);
+  oscillator.frequency.exponentialRampToValueAtTime(760, voice.context.currentTime + .12);
+  gain.gain.setValueAtTime(.0001, voice.context.currentTime);
+  gain.gain.exponentialRampToValueAtTime(.08, voice.context.currentTime + .02);
+  gain.gain.exponentialRampToValueAtTime(.0001, voice.context.currentTime + .18);
+  oscillator.connect(gain); gain.connect(voice.context.destination);
+  oscillator.start(); oscillator.stop(voice.context.currentTime + .19);
+}
+
+async function transcribeWav(wav, intent = 'transcribe') {
+  const response = await fetch('/api/voice/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/wav', 'X-Claudia-Voice': intent },
+    body: wav,
+    signal: voice.requestController?.signal,
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || 'Local transcription failed.');
+  return payload.transcript || '';
+}
+
+async function checkWakePhrase() {
+  if (voice.wakeBusy || !voice.wakeEnabled || !voice.context || voice.recording) return;
+  voice.wakeBusy = true;
+  const chunks = voice.wakeChunks;
+  voice.wakeChunks = [];
+  voice.wakeSamples = 0;
+  try {
+    const transcript = await transcribeWav(encodePcmWav(chunks, voice.context.sampleRate), 'wake');
+    const match = transcript.match(/\bhey[\s,]+claudia\b[\s,.:;-]*(.*)$/i);
+    if (!match) return;
+    playWakeChime();
+    const remainder = match[1]?.trim();
+    if (remainder) await askVoice(remainder);
+    else await startVoiceRecording();
+  } catch (error) {
+    if (error.name !== 'AbortError') console.warn('Wake phrase check failed:', error.message);
+  } finally {
+    voice.wakeBusy = false;
+  }
+}
+
+async function startVoiceRecording() {
+  try {
+    window.speechSynthesis?.cancel();
+    voice.speechToken += 1;
+    await ensureAudioInput();
+    voice.recordingChunks = [];
+    voice.recordingSamples = 0;
+    voice.recordingStartedAt = performance.now();
+    voice.quietForMs = 0;
+    voice.recording = true;
+    setVoiceState('listening', 'Listening', 'Speak naturally. Silence sends automatically, or tap the button when you are done.');
+  } catch (error) {
+    $('#voice-wake-toggle').checked = false;
+    voice.wakeEnabled = false;
+    setVoiceState('idle', 'Microphone unavailable', error.message);
+    toast(error.message);
+  }
+}
+
+async function finishVoiceRecording() {
+  if (!voice.recording || !voice.context) return;
+  voice.recording = false;
+  const chunks = voice.recordingChunks;
+  const duration = voice.recordingSamples / voice.context.sampleRate;
+  voice.recordingChunks = [];
+  voice.recordingSamples = 0;
+  if (duration < .2) {
+    setVoiceState('idle', 'Recording was too short', 'Try again and say an entire thought this time.');
+    return;
+  }
+  voice.requestController = new AbortController();
+  setVoiceState('transcribing', 'Transcribing locally', 'Whisper is turning your noise into something resembling language.');
+  try {
+    const transcript = await transcribeWav(encodePcmWav(chunks, voice.context.sampleRate));
+    await askVoice(transcript);
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      setVoiceState('idle', 'Transcription failed', error.message);
+      toast(error.message);
+    }
+  } finally {
+    voice.requestController = null;
+  }
+}
+
+function appendVoiceMessage(role, text) {
+  voice.conversation.push({ role, text: String(text), at: new Date() });
+  voice.conversation = voice.conversation.slice(-20);
+  const log = $('#voice-conversation');
+  log.querySelector('.voice-empty')?.remove();
+  const message = create('div', `voice-message ${role}`);
+  message.append(create('small', '', role === 'user' ? 'operator' : 'Claudia'), document.createTextNode(String(text)));
+  log.append(message);
+  log.scrollTop = log.scrollHeight;
+}
+
+function chooseMaleDeviceVoice() {
+  if (!window.speechSynthesis) return null;
+  const voices = speechSynthesis.getVoices();
+  const english = voices.filter((item) => /^en(?:-|_)/i.test(item.lang));
+  const local = english.filter((item) => item.localService);
+  const pool = local.length ? local : english;
+  const preferred = /\b(?:alex|aaron|daniel|david|fred|guy|mark|ryan|tom|male|matthew|christopher|eric|arthur|oliver)\b/i;
+  return pool.find((item) => preferred.test(item.name)) || pool.find((item) => /en[-_](?:US|GB)/i.test(item.lang)) || pool[0] || voices[0] || null;
+}
+
+function speechChunks(text) {
+  const sentences = String(text).replace(/https?:\/\/\S+/g, 'link provided on screen').split(/(?<=[.!?])\s+/);
+  const chunks = [];
+  for (const sentence of sentences) {
+    if (!sentence) continue;
+    if (sentence.length <= 240) chunks.push(sentence);
+    else for (let index = 0; index < sentence.length; index += 220) chunks.push(sentence.slice(index, index + 220));
+  }
+  return chunks;
+}
+
+async function speakVoiceReply(text) {
+  if (!$('#voice-speech-toggle').checked || !window.speechSynthesis) {
+    setVoiceState('idle', voice.wakeEnabled ? 'Waiting for “Hey Claudia”' : 'Ready when you are', 'The reply is on screen. Spoken replies are disabled.');
+    return;
+  }
+  const token = ++voice.speechToken;
+  speechSynthesis.cancel();
+  setVoiceState('speaking', 'Speaking', 'Tap the microphone to interrupt and talk over me.');
+  const selectedVoice = chooseMaleDeviceVoice();
+  for (const chunk of speechChunks(text)) {
+    if (token !== voice.speechToken) return;
+    await new Promise((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      utterance.voice = selectedVoice;
+      utterance.lang = selectedVoice?.lang || 'en-US';
+      utterance.rate = .96;
+      utterance.pitch = .94;
+      utterance.volume = 1;
+      utterance.onend = resolve;
+      utterance.onerror = resolve;
+      speechSynthesis.speak(utterance);
+    });
+  }
+  if (token === voice.speechToken) setVoiceState('idle', voice.wakeEnabled ? 'Waiting for “Hey Claudia”' : 'Ready when you are', voice.wakeEnabled ? 'Hands-free listening is active.' : 'Press the microphone whenever your next thought finally arrives.');
+}
+
+async function askVoice(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return;
+  appendVoiceMessage('user', clean);
+  voice.requestController?.abort();
+  voice.requestController = new AbortController();
+  setVoiceState('thinking', 'Claudia is thinking', 'The real OpenClaw agent is handling your request in a dedicated private session.');
+  try {
+    const response = await fetch('/api/voice/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Claudia-Voice': 'ask' },
+      body: JSON.stringify({ text: clean }),
+      signal: voice.requestController.signal,
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || 'Voice turn failed.');
+    appendVoiceMessage('assistant', payload.reply);
+    await speakVoiceReply(payload.reply);
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      setVoiceState('idle', 'Voice turn failed', error.message);
+      toast(error.message);
+    }
+  } finally {
+    voice.requestController = null;
+  }
+}
+
+async function interruptVoice() {
+  voice.recording = false;
+  voice.recordingChunks = [];
+  voice.recordingSamples = 0;
+  voice.requestController?.abort();
+  voice.requestController = null;
+  voice.speechToken += 1;
+  window.speechSynthesis?.cancel();
+  fetch('/api/voice/cancel', { method: 'POST', headers: { 'X-Claudia-Voice': 'cancel' } }).catch(() => {});
+  setVoiceState('idle', voice.wakeEnabled ? 'Waiting for “Hey Claudia”' : 'Interrupted', 'The previous turn was stopped.');
+}
+
+async function toggleWakePhrase(event) {
+  const enabled = event.currentTarget.checked;
+  if (enabled) {
+    try {
+      await ensureAudioInput();
+      voice.wakeEnabled = true;
+      voice.wakeChunks = [];
+      voice.wakeSamples = 0;
+      setVoiceState('idle', 'Waiting for “Hey Claudia”', 'Hands-free listening is active and processed only by the local speech engine.');
+    } catch (error) {
+      event.currentTarget.checked = false;
+      voice.wakeEnabled = false;
+      toast(error.message);
+    }
+  } else {
+    voice.wakeEnabled = false;
+    voice.wakeChunks = [];
+    voice.wakeSamples = 0;
+    if (!voice.recording) stopAudioInput();
+    setVoiceState('idle', 'Ready when you are', 'Wake listening is off. Press the microphone to speak.');
+  }
+}
+
 function renderAll() {
   renderDashboard();
   renderBrain();
@@ -613,7 +1030,7 @@ async function loadAll({ announce = false } = {}) {
 }
 
 function navigate(view, { focus = true } = {}) {
-  const valid = ['overview', 'memory', 'atlas', 'projects', 'dreams', 'settings'];
+  const valid = ['overview', 'memory', 'voice', 'atlas', 'projects', 'dreams', 'settings'];
   if (!valid.includes(view)) view = 'overview';
   state.view = view;
   document.body.dataset.view = view;
@@ -644,6 +1061,7 @@ function paletteItems(query = '') {
   const views = [
     { icon: '⌂', title: 'Overview', detail: 'Host vitals, services, memory, and network', kind: 'View', action: () => navigate('overview') },
     { icon: '∞', title: 'Memory', detail: 'Search long-term and daily memory', kind: 'View', action: () => navigate('memory') },
+    { icon: '◍', title: 'Voice Terminal', detail: 'Talk to Claudia with private local speech recognition', kind: 'View', action: () => navigate('voice') },
     { icon: '◉', title: 'Brain Atlas', detail: 'Explore the living anatomical map of the vault', kind: 'View', action: () => navigate('atlas') },
     { icon: '◇', title: 'Projects', detail: 'Active work, decisions, and open threads', kind: 'View', action: () => navigate('projects') },
     { icon: '◐', title: 'Dreams', detail: 'Nightly synthesis and dream journal', kind: 'View', action: () => navigate('dreams') },
@@ -815,6 +1233,30 @@ function bindEvents() {
     const type = event.currentTarget.checked ? 'text' : 'password';
     ['#current-password', '#new-password', '#confirm-password'].forEach((selector) => { $(selector).type = type; });
   });
+  $('#voice-main-button').addEventListener('click', async () => {
+    const kind = $('#voice-stage').dataset.voiceState;
+    if (kind === 'listening') await finishVoiceRecording();
+    else if (kind === 'speaking') { await interruptVoice(); await startVoiceRecording(); }
+    else if (kind === 'idle') await startVoiceRecording();
+  });
+  $('#voice-stop-button').addEventListener('click', interruptVoice);
+  $('#voice-wake-toggle').addEventListener('change', toggleWakePhrase);
+  $('#voice-text-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = $('#voice-text-input');
+    const value = input.value.trim();
+    if (!value) return;
+    input.value = '';
+    await askVoice(value);
+  });
+  $('#voice-clear-button').addEventListener('click', () => {
+    voice.conversation = [];
+    const log = $('#voice-conversation');
+    log.replaceChildren();
+    const empty = create('div', 'voice-empty');
+    empty.append(create('span', '', '⌁'), create('p', '', 'Conversation display cleared. The dedicated agent session remains private.'));
+    log.append(empty);
+  });
   $('#memory-search').addEventListener('input', (event) => renderDocuments(event.target.value));
   $('#command-trigger').addEventListener('click', (event) => openPalette(event.currentTarget));
   $('#mobile-command')?.addEventListener('click', (event) => openPalette(event.currentTarget));
@@ -873,6 +1315,7 @@ function bindEvents() {
     state.atlasRenderer?.setActive(state.view === 'atlas' && !document.hidden);
     if (!document.hidden && state.live && state.lastUpdated && Date.now() - state.lastUpdated.getTime() > 30_000) loadAll();
   });
+  window.addEventListener('pagehide', () => { interruptVoice(); stopAudioInput(); });
 }
 
 async function init() {
@@ -882,11 +1325,15 @@ async function init() {
   $('#atlas-motion').setAttribute('aria-pressed', state.atlasMotion ? 'true' : 'false');
   navigate(location.hash.slice(1) || 'overview', { focus: false });
   await loadAll();
+  await loadVoiceStatus();
+  if ('speechSynthesis' in window) speechSynthesis.getVoices();
+  drawVoiceWaveform();
   connectEvents();
   setInterval(() => { if (state.live && !document.hidden) loadAll(); }, 20_000);
   setInterval(() => {
     if (state.lastUpdated) setText('#hero-kicker', `Live system intelligence · updated ${formatRelative(state.lastUpdated)}`);
   }, 30_000);
+  setInterval(loadVoiceStatus, 60_000);
 }
 
 init();

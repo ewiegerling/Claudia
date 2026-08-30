@@ -79,7 +79,7 @@ test('production-style browser audit', async (t) => {
       const errors = watchErrors(page);
       await page.goto(`${BASE_URL}/`, { waitUntil: 'domcontentloaded' });
       await waitForDashboard(page);
-      for (const view of ['memory', 'atlas', 'projects', 'dreams', 'settings', 'overview']) {
+      for (const view of ['memory', 'voice', 'atlas', 'projects', 'dreams', 'settings', 'overview']) {
         await page.locator(`.side-nav [data-nav="${view}"]`).click();
         await page.locator(`#view-${view}`).waitFor({ state: 'visible' });
         if (view === 'atlas') await waitForAtlas(page);
@@ -88,6 +88,36 @@ test('production-style browser audit', async (t) => {
         await assertNoOverflow(page, `desktop ${view}`);
       }
       await page.screenshot({ path: `${OUTPUT_DIR}/overview-1280.png`, fullPage: true });
+      assert.deepEqual(errors, []);
+      await page.close();
+    });
+
+    await t.test('Voice Terminal has a private typed fallback and spoken replies are controllable', async () => {
+      const page = await browser.newPage(withHttpCredentials({ viewport: { width: 1280, height: 900 } }));
+      const errors = watchErrors(page);
+      await page.route('**/api/voice/ask', async (route) => {
+        const request = route.request();
+        assert.equal(request.method(), 'POST');
+        assert.equal(request.headers()['x-claudia-voice'], 'ask');
+        assert.deepEqual(request.postDataJSON(), { text: 'Give me a concise systems check.' });
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+          reply: 'Systems are nominal. The typed voice fallback is working.', session: 'dashboard-voice', spokenLocally: true,
+        }) });
+      });
+      await page.goto(`${BASE_URL}/#voice`, { waitUntil: 'domcontentloaded' });
+      await waitForDashboard(page);
+      await page.locator('#view-voice').waitFor({ state: 'visible' });
+      await page.locator('.voice-toggle').filter({ has: page.locator('#voice-speech-toggle') }).click();
+      assert.equal(await page.locator('#voice-speech-toggle').isChecked(), false);
+      await page.locator('#voice-text-input').fill('Give me a concise systems check.');
+      await page.locator('#voice-text-submit').click();
+      await page.waitForFunction(() => document.querySelectorAll('.voice-message').length === 2, null, { timeout: 10_000 });
+      assert.match(await page.locator('.voice-message.user').innerText(), /systems check/i);
+      assert.match(await page.locator('.voice-message.assistant').innerText(), /nominal/i);
+      assert.equal(await page.locator('#voice-speech-toggle').getAttribute('role'), 'switch');
+      assert.match(await page.locator('#voice-runtime-detail').innerText(), /Whisper|OpenClaw/i);
+      await assertNoOverflow(page, 'desktop Voice Terminal');
+      await page.screenshot({ path: `${OUTPUT_DIR}/voice-desktop.png`, fullPage: true });
       assert.deepEqual(errors, []);
       await page.close();
     });
@@ -245,7 +275,7 @@ test('production-style browser audit', async (t) => {
         await page.goto(`${BASE_URL}/`, { waitUntil: 'domcontentloaded' });
         await waitForDashboard(page);
         assert.equal(await page.locator('.mobile-nav').isVisible(), true);
-        for (const view of ['memory', 'atlas', 'projects', 'dreams', 'overview']) {
+        for (const view of ['memory', 'voice', 'atlas', 'projects', 'dreams', 'overview']) {
           await page.locator(`.mobile-nav [data-nav="${view}"]`).click();
           await page.locator(`#view-${view}`).waitFor({ state: 'visible' });
           if (view === 'atlas') {

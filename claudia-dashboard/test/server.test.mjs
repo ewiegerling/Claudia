@@ -7,8 +7,36 @@ import { createDashboardServer, safeMarkdown } from '../server.mjs';
 let server;
 let baseUrl;
 
+function makeVoiceWav(durationSeconds = 0.25) {
+  const dataBytes = Math.round(16_000 * durationSeconds) * 2;
+  const wav = Buffer.alloc(44 + dataBytes);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + dataBytes, 4);
+  wav.write('WAVE', 8);
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(16_000, 24);
+  wav.writeUInt32LE(32_000, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(dataBytes, 40);
+  return wav;
+}
+
 before(async () => {
-  server = createDashboardServer();
+  server = createDashboardServer({
+    voiceTranscriber: {
+      status: async () => true,
+      transcribe: async () => 'test voice prompt',
+    },
+    voiceAgent: {
+      status: async () => true,
+      ask: async (text) => `Test reply for: ${text}`,
+    },
+  });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
@@ -26,6 +54,7 @@ test('health endpoint is read-only, private, and hardened', async () => {
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
   assert.equal(response.headers.get('access-control-allow-origin'), null);
   assert.match(response.headers.get('permissions-policy'), /camera=\(\)/);
+  assert.match(response.headers.get('permissions-policy'), /microphone=\(self\)/);
   assert.match(response.headers.get('strict-transport-security'), /max-age=15552000/);
   assert.match(response.headers.get('content-security-policy'), /default-src 'self'/);
   assert.match(response.headers.get('cache-control'), /no-store/);
@@ -129,13 +158,63 @@ test('dashboard API exposes bounded read-only telemetry with current identities'
   assert.ok(dashboard.resources.storage.totalBytes > 0);
   assert.equal(dashboard.network.canonicalHost, 'dashboard.example.com');
   assert.equal(dashboard.network.upstream, '127.0.0.1:4317');
-  assert.deepEqual(dashboard.services.map((service) => service.id), ['claudia-dashboard', 'openclaw-gateway', 'memory-store']);
+  assert.deepEqual(dashboard.services.map((service) => service.id), ['claudia-dashboard', 'claudia-stt', 'openclaw-gateway', 'memory-store']);
   assert.equal(JSON.stringify(dashboard).includes('/opt/operator'), false);
 });
 
 test('retired command API is no longer exposed', async () => {
   const response = await fetch(`${baseUrl}/api/command`);
   assert.equal(response.status, 404);
+});
+
+test('voice terminal is local, bounded, same-origin, and connected to the injected agent', async () => {
+  const statusResponse = await fetch(`${baseUrl}/api/voice/status`);
+  assert.equal(statusResponse.status, 200);
+  const status = await statusResponse.json();
+  assert.deepEqual({ available: status.available, transcription: status.transcription, agent: status.agent }, {
+    available: true, transcription: true, agent: true,
+  });
+  assert.equal(status.wakePhrase, 'Hey Claudia');
+  assert.equal(status.speechOutput, 'local-device-voice');
+  assert.doesNotMatch(JSON.stringify(status), /(?:\/home\/|token|password|key)/i);
+
+  const rejectedOrigin = await fetch(`${baseUrl}/api/voice/transcribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/wav', 'X-Claudia-Voice': 'transcribe', Origin: 'https://hostile.invalid' },
+    body: makeVoiceWav(),
+  });
+  assert.equal(rejectedOrigin.status, 403);
+
+  const malformed = await fetch(`${baseUrl}/api/voice/transcribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/wav', 'X-Claudia-Voice': 'transcribe', Origin: baseUrl },
+    body: Buffer.alloc(44),
+  });
+  assert.equal(malformed.status, 400);
+
+  const transcription = await fetch(`${baseUrl}/api/voice/transcribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/wav', 'X-Claudia-Voice': 'transcribe', Origin: baseUrl },
+    body: makeVoiceWav(),
+  });
+  assert.equal(transcription.status, 200);
+  assert.deepEqual(await transcription.json(), { transcript: 'test voice prompt', durationSeconds: 0.25, local: true });
+
+  const answer = await fetch(`${baseUrl}/api/voice/ask`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Claudia-Voice': 'ask', Origin: baseUrl },
+    body: JSON.stringify({ text: 'What is the system status?' }),
+  });
+  assert.equal(answer.status, 200);
+  assert.deepEqual(await answer.json(), {
+    reply: 'Test reply for: What is the system status?', session: 'dashboard-voice', spokenLocally: true,
+  });
+
+  const cancel = await fetch(`${baseUrl}/api/voice/cancel`, {
+    method: 'POST', headers: { 'X-Claudia-Voice': 'cancel', Origin: baseUrl },
+  });
+  assert.equal(cancel.status, 200);
+  assert.deepEqual(await cancel.json(), { ok: true, interrupted: false });
 });
 
 test('memory API reads only fixed Markdown sources and returns sanitized HTML', async () => {
@@ -216,7 +295,7 @@ test('Brain Atlas API exposes only bounded, relative, metadata-only topology', a
 });
 
 test('new SPA and every local asset are served without remote dependencies', async () => {
-  const paths = ['/', '/index.html', '/dashboard.css?v=2', '/atlas.js?v=1', '/dashboard.js?v=2', '/manifest.webmanifest', '/icon.svg'];
+  const paths = ['/', '/index.html', '/dashboard.css?v=3', '/atlas.js?v=1', '/dashboard.js?v=3', '/manifest.webmanifest', '/icon.svg'];
   const responses = await Promise.all(paths.map((path) => fetch(`${baseUrl}${path}`)));
   responses.forEach((response) => assert.equal(response.status, 200));
   const html = await responses[0].text();

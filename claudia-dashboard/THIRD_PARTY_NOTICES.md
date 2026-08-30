@@ -27,3 +27,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## whisper.cpp and Whisper
+
+Local speech recognition uses the prebuilt `ggml-org/whisper.cpp` release
+`b4938` and the English `base.en` model converted from OpenAI Whisper. The
+installer pins and verifies both artifacts by SHA-256 before activation.
+
+- `whisper.cpp`: <https://github.com/ggml-org/whisper.cpp> (MIT License)
+- Whisper: <https://github.com/openai/whisper> (MIT License)
+
+The runtime and model files are installed outside this repository and are not
+included in either Git destination.

@@ -9,9 +9,9 @@
   <title>Claudia Dashboard</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/dashboard.css?v=2">
+  <link rel="stylesheet" href="/dashboard.css?v=3">
   <script src="/atlas.js?v=1" defer></script>
-  <script src="/dashboard.js?v=2" defer></script>
+  <script src="/dashboard.js?v=3" defer></script>
 </head>
 <body data-view="overview">
   <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -36,6 +36,10 @@
         <button class="nav-item" type="button" data-nav="memory">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 15h11M9 8h6"/></svg>
           <span>Memory</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="voice">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4Z"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3M8 22h8"/></svg>
+          <span>Voice</span>
         </button>
         <button class="nav-item" type="button" data-nav="atlas">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9.5 4.5a3 3 0 0 0-4 2.8 3.5 3.5 0 0 0-.4 6.7A3.2 3.2 0 0 0 9 19.5c1.1-.5 1.8-1.4 2-2.5V7.5a3 3 0 0 0-1.5-3Z"/><path d="M14.5 4.5a3 3 0 0 1 4 2.8 3.5 3.5 0 0 1 .4 6.7 3.2 3.2 0 0 1-3.9 5.5c-1.1-.5-1.8-1.4-2-2.5V7.5a3 3 0 0 1 1.5-3ZM8 9.5h3M13 12h3M8 15h3"/></svg>
@@ -305,6 +309,52 @@
           </section>
         </section>
 
+        <section class="view voice-view" id="view-voice" data-view-panel="voice" aria-labelledby="voice-title" hidden>
+          <div class="section-hero voice-hero">
+            <div><p class="eyebrow"><span class="voice-ready-dot" aria-hidden="true"></span>Private voice channel</p><h1 id="voice-title">Talk to Claudia.</h1><p>Local speech recognition, the real OpenClaw brain, and a normal male device voice. No cloud speech service gets your microphone audio.</p></div>
+            <div class="voice-runtime-badge" id="voice-runtime-badge"><span aria-hidden="true">◉</span><div><strong id="voice-runtime-label">Checking runtime</strong><small id="voice-runtime-detail">Local Whisper · OpenClaw</small></div></div>
+          </div>
+
+          <div class="voice-layout">
+            <article class="panel voice-stage" id="voice-stage" data-voice-state="idle">
+              <header class="voice-stage-header"><div><span>Voice terminal</span><strong id="voice-state-label">Ready when you are</strong></div><span class="voice-privacy-chip">LOCAL AUDIO</span></header>
+              <div class="voice-avatar-wrap" aria-hidden="true">
+                <span class="voice-orbit orbit-one"></span><span class="voice-orbit orbit-two"></span><span class="voice-orbit orbit-three"></span>
+                <div class="voice-avatar">
+                  <svg class="voice-face" viewBox="0 0 160 190"><path class="voice-head" d="M80 14c37 0 59 28 59 68 0 50-23 89-59 94-36-5-59-44-59-94 0-40 22-68 59-68Z"/><path class="voice-brow" d="M43 72c11-7 23-8 33-2M84 70c11-6 23-5 33 2"/><path class="voice-eye" d="M47 82c8 5 17 5 25 0M88 82c8 5 17 5 25 0"/><path class="voice-nose" d="M80 81c-4 18-4 31 2 37"/><path class="voice-mouth" d="M56 137c15 8 33 8 48 0"/><path class="voice-jaw-light" d="M42 126c7 27 21 42 38 46 17-4 31-19 38-46"/></svg>
+                  <span class="voice-core-mark">C</span>
+                </div>
+              </div>
+              <canvas id="voice-waveform" class="voice-waveform" width="900" height="150" role="img" aria-label="Live microphone signal visualization"></canvas>
+              <div class="voice-live-status" role="status" aria-live="polite"><strong id="voice-live-title">Press the microphone and speak</strong><span id="voice-live-copy">Your recording stays on this server and is discarded after transcription.</span></div>
+              <div class="voice-primary-controls">
+                <button class="voice-main-button" id="voice-main-button" type="button"><span class="voice-mic-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4Z"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3"/></svg></span><span><strong id="voice-main-label">Start talking</strong><small>Tap again to send</small></span></button>
+                <button class="voice-stop-button" id="voice-stop-button" type="button" hidden><span aria-hidden="true">■</span> Interrupt</button>
+              </div>
+              <form class="voice-text-form" id="voice-text-form">
+                <label class="sr-only" for="voice-text-input">Type a message to Claudia</label>
+                <input id="voice-text-input" type="text" maxlength="2000" autocomplete="off" placeholder="Or type when talking would make you look insane…">
+                <button id="voice-text-submit" type="submit" aria-label="Send typed message"><span>Send</span><span aria-hidden="true">→</span></button>
+              </form>
+            </article>
+
+            <aside class="voice-side-stack">
+              <section class="panel voice-controls-panel" aria-labelledby="voice-controls-title">
+                <header><div><p class="eyebrow">Listening controls</p><h2 id="voice-controls-title">Hands-free mode</h2></div><span class="voice-wake-phrase">“Hey Claudia”</span></header>
+                <label class="voice-toggle"><span><strong>Wake phrase</strong><small id="voice-wake-help">Continuously checks short local audio windows.</small></span><input id="voice-wake-toggle" type="checkbox" role="switch" aria-describedby="voice-wake-help"><i aria-hidden="true"></i></label>
+                <label class="voice-toggle"><span><strong>Spoken replies</strong><small>Use a natural male voice available on this device.</small></span><input id="voice-speech-toggle" type="checkbox" role="switch" checked><i aria-hidden="true"></i></label>
+              </section>
+              <section class="panel voice-conversation-panel" aria-labelledby="voice-conversation-title">
+                <header><div><p class="eyebrow">Current session</p><h2 id="voice-conversation-title">Conversation</h2></div><button id="voice-clear-button" type="button">Clear</button></header>
+                <div class="voice-conversation" id="voice-conversation" role="log" aria-live="polite" aria-relevant="additions">
+                  <div class="voice-empty"><span aria-hidden="true">⌁</span><p>Nothing said yet. A rare and beautiful moment of restraint.</p></div>
+                </div>
+              </section>
+              <section class="panel voice-architecture-card"><span aria-hidden="true">⌬</span><div><strong>Private by construction</strong><p>16 kHz PCM is transcribed on loopback. Only the resulting text enters the dedicated OpenClaw voice session.</p></div></section>
+            </aside>
+          </div>
+        </section>
+
         <section class="view" id="view-projects" data-view-panel="projects" aria-labelledby="projects-title" hidden>
           <div class="section-hero"><div><p class="eyebrow">Active work</p><h1 id="projects-title">Projects with a pulse.</h1><p>Current direction, decisions, and loose threads—derived from memory, never duplicated.</p></div><div class="hero-number"><strong id="project-total">—</strong><span>active projects</span></div></div>
           <div class="projects-layout">
@@ -355,7 +405,8 @@
   <nav class="mobile-nav" aria-label="Dashboard sections">
     <button class="active" type="button" data-nav="overview" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v10h-6zM4 14h6v6H4zM14 18h6v2h-6z"/></svg><span>Home</span></button>
     <button type="button" data-nav="memory"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 15h11M9 8h6"/></svg><span>Memory</span></button>
-    <button class="mobile-command mobile-atlas" type="button" data-nav="atlas" aria-label="Open Brain Atlas"><span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9.5 4.5a3 3 0 0 0-4 2.8 3.5 3.5 0 0 0-.4 6.7A3.2 3.2 0 0 0 9 19.5c1.1-.5 1.8-1.4 2-2.5V7.5a3 3 0 0 0-1.5-3Z"/><path d="M14.5 4.5a3 3 0 0 1 4 2.8 3.5 3.5 0 0 1 .4 6.7 3.2 3.2 0 0 1-3.9 5.5c-1.1-.5-1.8-1.4-2-2.5V7.5a3 3 0 0 1 1.5-3Z"/></svg></span><em>Atlas</em></button>
+    <button class="mobile-command mobile-voice" type="button" data-nav="voice" aria-label="Open Voice Terminal"><span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3a4 4 0 0 0-4 4v5a4 4 0 0 0 8 0V7a4 4 0 0 0-4-4Z"/><path d="M5 11v1a7 7 0 0 0 14 0v-1M12 19v3"/></svg></span><em>Voice</em></button>
+    <button type="button" data-nav="atlas"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9.5 4.5a3 3 0 0 0-4 2.8 3.5 3.5 0 0 0-.4 6.7A3.2 3.2 0 0 0 9 19.5c1.1-.5 1.8-1.4 2-2.5V7.5a3 3 0 0 0-1.5-3Z"/><path d="M14.5 4.5a3 3 0 0 1 4 2.8 3.5 3.5 0 0 1 .4 6.7 3.2 3.2 0 0 1-3.9 5.5c-1.1-.5-1.8-1.4-2-2.5V7.5a3 3 0 0 1 1.5-3Z"/></svg><span>Atlas</span></button>
     <button type="button" data-nav="projects"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4V7Z"/></svg><span>Projects</span></button>
     <button type="button" data-nav="dreams"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M19 15.5A8 8 0 0 1 8.5 5a8 8 0 1 0 10.5 10.5Z"/></svg><span>Dreams</span></button>
   </nav>

@@ -1,7 +1,7 @@
 [Unit]
 Description=Claudia private read-only dashboard
-Wants=network-online.target
-After=network-online.target
+Wants=network-online.target claudia-stt.service
+After=network-online.target claudia-stt.service
 
 [Service]
 Type=simple
@@ -9,6 +9,7 @@ WorkingDirectory=/opt/claudia-vault/claudia-dashboard
 Environment=NODE_ENV=production
 Environment=DASHBOARD_HOST=127.0.0.1
 Environment=DASHBOARD_PORT=4317
+Environment=DASHBOARD_STT_URL=http://127.0.0.1:4320/inference
 ExecStart=/usr/bin/node /opt/claudia-vault/claudia-dashboard/server.mjs
 Restart=on-failure
 RestartSec=3

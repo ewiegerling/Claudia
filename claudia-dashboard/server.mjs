@@ -10,6 +10,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { loadAtlas } from './atlas.mjs';
+import {
+  createLocalVoiceTranscriber,
+  createOpenClawVoiceAgent,
+  MAX_VOICE_PROMPT_CHARACTERS,
+  readRawBody,
+  validatePcmWav,
+} from './voice.mjs';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(APP_DIR, 'public');
@@ -28,6 +35,7 @@ const MAX_LIVE_CLIENTS = 32;
 const SOURCE_BYTES = Symbol('sourceBytes');
 const SERVICE_DEFINITIONS = [
   { id: 'claudia-dashboard', name: 'Claudia Dashboard', unit: 'claudia-dashboard.service', description: 'Private operations and memory dashboard' },
+  { id: 'claudia-stt', name: 'Local Speech Engine', unit: 'claudia-stt.service', description: 'Private on-device Whisper transcription' },
   { id: 'openclaw-gateway', name: 'OpenClaw Gateway', unit: 'openclaw-gateway.service', description: 'Agent runtime and integration gateway' },
 ];
 
@@ -43,7 +51,7 @@ const MIME_TYPES = new Map([
 const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; manifest-src 'self'; worker-src 'none'",
   'Cross-Origin-Resource-Policy': 'same-origin',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'Permissions-Policy': 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()',
   'Referrer-Policy': 'no-referrer',
   'Strict-Transport-Security': 'max-age=15552000',
   'X-Content-Type-Options': 'nosniff',
@@ -124,6 +132,26 @@ async function readJsonBody(request, maximumBytes = 4096) {
   } catch {
     throw Object.assign(new Error('Request body must be valid JSON.'), { statusCode: 400 });
   }
+}
+
+function createRateLimiter(maximum, windowMs) {
+  const clients = new Map();
+  return function consume(key) {
+    const now = Date.now();
+    const current = clients.get(key);
+    if (!current || now >= current.resetAt) {
+      clients.set(key, { count: 1, resetAt: now + windowMs });
+      return { allowed: true, retryAfter: 0 };
+    }
+    if (current.count >= maximum) {
+      return { allowed: false, retryAfter: Math.max(1, Math.ceil((current.resetAt - now) / 1000)) };
+    }
+    current.count += 1;
+    if (clients.size > 128) {
+      for (const [clientKey, value] of clients) if (now >= value.resetAt) clients.delete(clientKey);
+    }
+    return { allowed: true, retryAfter: 0 };
+  };
 }
 
 function requestHasSameOrigin(request) {
@@ -962,7 +990,11 @@ async function serveStatic(requestPath, response, headOnly = false) {
   }
 }
 
-export function createDashboardServer({ authenticationRotator = rotateDashboardAuthentication } = {}) {
+export function createDashboardServer({
+  authenticationRotator = rotateDashboardAuthentication,
+  voiceTranscriber = createLocalVoiceTranscriber(),
+  voiceAgent = createOpenClawVoiceAgent(),
+} = {}) {
   const collectAtlas = createAtlasCollector();
   const liveUpdates = createLiveUpdates(() => collectAtlas.invalidate());
   const runtimeStats = { startedAt: new Date().toISOString(), requests: 0, errors: 0 };
@@ -971,6 +1003,10 @@ export function createDashboardServer({ authenticationRotator = rotateDashboardA
     .then((authentication) => ({ authentication, error: null }))
     .catch((error) => ({ authentication: null, error }));
   let passwordChangePending = false;
+  let voiceTranscriptionsPending = 0;
+  let voiceTurnController = null;
+  const consumeTranscription = createRateLimiter(36, 60_000);
+  const consumeVoiceTurn = createRateLimiter(12, 60_000);
   const handleRequest = async (request, response) => {
     runtimeStats.requests += 1;
     const headOnly = request.method === 'HEAD';
@@ -982,8 +1018,11 @@ export function createDashboardServer({ authenticationRotator = rotateDashboardA
     }
 
     const rotatesCredential = request.method === 'POST' && url.pathname === '/api/settings/password';
-    if (request.method !== 'GET' && !headOnly && !rotatesCredential) {
-      return jsonResponse(response, 405, { error: 'Read-only means read-only.' }, headOnly, { Allow: 'GET, HEAD' });
+    const voiceWrite = request.method === 'POST' && [
+      '/api/voice/transcribe', '/api/voice/ask', '/api/voice/cancel',
+    ].includes(url.pathname);
+    if (request.method !== 'GET' && !headOnly && !rotatesCredential && !voiceWrite) {
+      return jsonResponse(response, 405, { error: 'This write route does not exist.' }, headOnly, { Allow: 'GET, HEAD' });
     }
 
     if (requestUsedPlainHttp(request)) return redirectToHttps(response, url, headOnly);
@@ -1038,6 +1077,92 @@ export function createDashboardServer({ authenticationRotator = rotateDashboardA
         if (statusCode === 500) console.error('Dashboard password rotation failed:', error.message);
         return jsonResponse(response, statusCode, { error: statusCode === 500 ? 'Password rotation failed safely.' : error.message });
       }
+    }
+
+    if (url.pathname === '/api/voice/status') {
+      const [transcription, agent] = await Promise.all([
+        voiceTranscriber.status().catch(() => false),
+        voiceAgent.status().catch(() => false),
+      ]);
+      return jsonResponse(response, 200, {
+        available: transcription && agent,
+        transcription,
+        agent,
+        wakePhrase: 'Hey Claudia',
+        speechOutput: 'local-device-voice',
+        maximumRecordingSeconds: 32,
+        privacy: 'Microphone audio is sent only to this private dashboard and its loopback speech engine.',
+      }, headOnly);
+    }
+
+    if (url.pathname === '/api/voice/transcribe') {
+      const voiceIntent = request.headers['x-claudia-voice'];
+      const wake = voiceIntent === 'wake';
+      if ((voiceIntent !== 'transcribe' && !wake) || !requestHasSameOrigin(request)
+        || String(request.headers['content-type'] || '').toLowerCase() !== 'audio/wav') {
+        return jsonResponse(response, 403, { error: 'Voice transcription request was rejected.' });
+      }
+      const clientKey = String(request.socket.remoteAddress || 'unknown');
+      const limit = consumeTranscription(clientKey);
+      if (!limit.allowed) return jsonResponse(response, 429, { error: 'Voice transcription rate limit reached.' }, false, { 'Retry-After': String(limit.retryAfter) });
+      if (voiceTranscriptionsPending >= 2) return jsonResponse(response, 503, { error: 'The speech engine is already busy.' }, false, { 'Retry-After': '2' });
+      const controller = new AbortController();
+      request.on('aborted', () => controller.abort());
+      response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+      voiceTranscriptionsPending += 1;
+      try {
+        const audio = await readRawBody(request);
+        const audioInfo = validatePcmWav(audio);
+        const transcript = await voiceTranscriber.transcribe(audio, { wake, signal: controller.signal });
+        if (!wake && !transcript) return jsonResponse(response, 422, { error: 'I could not hear any speech.' });
+        return jsonResponse(response, 200, { transcript, durationSeconds: audioInfo.durationSeconds, local: true });
+      } catch (error) {
+        const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+        if (statusCode >= 500 && statusCode !== 504) console.error('Voice transcription failed:', error.message);
+        if (!response.writableEnded) return jsonResponse(response, statusCode, { error: statusCode === 500 ? 'Voice transcription failed safely.' : error.message });
+        return undefined;
+      } finally {
+        voiceTranscriptionsPending -= 1;
+      }
+    }
+
+    if (url.pathname === '/api/voice/ask') {
+      if (request.headers['x-claudia-voice'] !== 'ask' || !requestHasSameOrigin(request)
+        || String(request.headers['content-type'] || '').toLowerCase() !== 'application/json') {
+        return jsonResponse(response, 403, { error: 'Voice agent request was rejected.' });
+      }
+      const clientKey = String(request.socket.remoteAddress || 'unknown');
+      const limit = consumeVoiceTurn(clientKey);
+      if (!limit.allowed) return jsonResponse(response, 429, { error: 'Voice turn rate limit reached.' }, false, { 'Retry-After': String(limit.retryAfter) });
+      if (voiceTurnController) return jsonResponse(response, 409, { error: 'Claudia is already answering. Interrupt that turn first.' });
+      try {
+        const payload = await readJsonBody(request, 4_096);
+        const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
+        if (!text) return jsonResponse(response, 400, { error: 'Say something first.' });
+        if (text.length > MAX_VOICE_PROMPT_CHARACTERS) return jsonResponse(response, 413, { error: 'Voice prompt is too long.' });
+        const controller = new AbortController();
+        voiceTurnController = controller;
+        request.on('aborted', () => controller.abort());
+        response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+        const reply = await voiceAgent.ask(text, { signal: controller.signal });
+        return jsonResponse(response, 200, { reply, session: 'dashboard-voice', spokenLocally: true });
+      } catch (error) {
+        const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+        if (statusCode >= 500 && statusCode !== 504) console.error('Voice agent bridge failed:', error.message);
+        if (!response.writableEnded) return jsonResponse(response, statusCode, { error: statusCode === 500 ? 'Voice turn failed safely.' : error.message });
+        return undefined;
+      } finally {
+        voiceTurnController = null;
+      }
+    }
+
+    if (url.pathname === '/api/voice/cancel') {
+      if (request.headers['x-claudia-voice'] !== 'cancel' || !requestHasSameOrigin(request)) {
+        return jsonResponse(response, 403, { error: 'Voice interruption request was rejected.' });
+      }
+      const interrupted = Boolean(voiceTurnController);
+      voiceTurnController?.abort();
+      return jsonResponse(response, 200, { ok: true, interrupted });
     }
 
     if (url.pathname === '/api/events') {

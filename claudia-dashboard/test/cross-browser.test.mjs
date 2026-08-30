@@ -36,7 +36,7 @@ test('Firefox desktop and mobile smoke audit', async (t) => {
         page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
         await page.goto(`${BASE_URL}/`, { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => document.querySelector('#cpu-value')?.textContent !== '—', null, { timeout: 20_000 });
-        for (const view of ['overview', 'memory', 'atlas', 'projects', 'dreams', 'settings']) {
+        for (const view of ['overview', 'memory', 'voice', 'atlas', 'projects', 'dreams', 'settings']) {
           await page.evaluate((target) => document.querySelector(`[data-nav="${target}"]`)?.click(), view);
           await page.locator(`#view-${view}`).waitFor({ state: 'visible' });
           if (view === 'atlas') {
