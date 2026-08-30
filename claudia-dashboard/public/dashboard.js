@@ -734,8 +734,8 @@ function setLive(enabled) {
 function updatePasswordStrength() {
   const nextSecret = $('#new-password').value;
   let score = 0;
+  if (nextSecret.length >= 12) score += 1;
   if (nextSecret.length >= 20) score += 1;
-  if (nextSecret.length >= 28) score += 1;
   if (/[a-z]/.test(nextSecret) && /[A-Z]/.test(nextSecret)) score += 1;
   if (/\d/.test(nextSecret) && /[^\w\s]/.test(nextSecret)) score += 1;
   const labels = ['waiting for input', 'fair', 'good', 'strong', 'excellent'];

@@ -330,13 +330,13 @@
                 <label for="current-password">Current password</label>
                 <input id="current-password" name="current-password" type="password" autocomplete="current-password" required maxlength="512" aria-label="Current password">
                 <label for="new-password">New password</label>
-                <input id="new-password" name="new-password" type="password" autocomplete="new-password" required minlength="20" maxlength="128" aria-label="New password" aria-describedby="password-guidance password-strength-label">
+                <input id="new-password" name="new-password" type="password" autocomplete="new-password" required minlength="12" maxlength="128" aria-label="New password" aria-describedby="password-guidance password-strength-label">
                 <div class="strength-track" aria-hidden="true"><span id="password-strength"></span></div>
                 <small id="password-strength-label">Strength: waiting for input</small>
                 <label for="confirm-password">Confirm new password</label>
-                <input id="confirm-password" name="confirm-password" type="password" autocomplete="new-password" required minlength="20" maxlength="128" aria-label="Confirm new password">
+                <input id="confirm-password" name="confirm-password" type="password" autocomplete="new-password" required minlength="12" maxlength="128" aria-label="Confirm new password">
                 <label class="show-secret"><input id="show-passwords" type="checkbox" aria-label="Show passwords"><span>Show passwords</span></label>
-                <p id="password-guidance">Use at least 20 characters. A long, unique passphrase is both stronger and less miserable to type.</p>
+                <p id="password-guidance">Use at least 12 characters. A long, unique passphrase is still stronger and less miserable to remember.</p>
                 <button class="primary-action" id="password-submit" type="submit"><span>Rotate password</span><span aria-hidden="true">→</span></button>
                 <p class="form-status" id="password-status" role="status" aria-live="polite"></p>
               </form>

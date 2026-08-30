@@ -92,7 +92,7 @@ async function loadDashboardAuthentication() {
   if (!authentication) return null;
   if (typeof authentication.username !== 'string' || typeof authentication.password !== 'string'
     || authentication.username.length < 1 || authentication.username.length > 128
-    || authentication.password.length < 20 || authentication.password.length > 512) {
+    || authentication.password.length < 12 || authentication.password.length > 512) {
     throw new Error('Dashboard authentication credential is invalid.');
   }
   return Object.freeze(authentication);
@@ -1024,8 +1024,8 @@ export function createDashboardServer({ authenticationRotator = rotateDashboardA
         if (typeof currentSecret !== 'string' || !secureTextEqual(currentSecret, authentication.password)) {
           return jsonResponse(response, 403, { error: 'Current password is incorrect.' });
         }
-        if (typeof nextSecret !== 'string' || nextSecret.length < 20 || nextSecret.length > 128) {
-          return jsonResponse(response, 400, { error: 'New password must be 20–128 characters.' });
+        if (typeof nextSecret !== 'string' || nextSecret.length < 12 || nextSecret.length > 128) {
+          return jsonResponse(response, 400, { error: 'New password must be 12–128 characters.' });
         }
         if (nextSecret !== confirmation) return jsonResponse(response, 400, { error: 'New passwords do not match.' });
         if (secureTextEqual(nextSecret, currentSecret)) return jsonResponse(response, 400, { error: 'Choose a different password.' });

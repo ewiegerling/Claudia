@@ -69,7 +69,7 @@ test('password rotation requires authentication, same-origin intent, and a valid
   const previousUsername = process.env.DASHBOARD_AUTH_USER;
   const previousSecret = process.env['DASHBOARD_AUTH_PASSWORD'];
   const currentSecret = 'example-current-dashboard-secret-2026';
-  const nextSecret = 'example-next-dashboard-secret-2026!';
+  const nextSecret = 'example12!Ab';
   process.env.DASHBOARD_AUTH_USER = 'settings-audit';
   Reflect.set(process.env, 'DASHBOARD_AUTH_PASSWORD', currentSecret);
   const rotations = [];
@@ -91,7 +91,7 @@ test('password rotation requires authentication, same-origin intent, and a valid
     assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(), headers: { ...headers, Authorization: undefined } })).status, 401);
     assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(), headers: { ...headers, Origin: 'https://hostile.invalid' } })).status, 403);
     assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload('incorrect-current-dashboard-secret') , headers })).status, 403);
-    assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(currentSecret, 'too-short', 'too-short'), headers })).status, 400);
+    assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(currentSecret, '12345678901', '12345678901'), headers })).status, 400);
     const success = await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(), headers });
     assert.equal(success.status, 200);
     assert.deepEqual(rotations, [['settings-audit', nextSecret]]);
