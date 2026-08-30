@@ -9,8 +9,9 @@
   <title>Claudia Dashboard</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/dashboard.css?v=1">
-  <script src="/dashboard.js?v=1" defer></script>
+  <link rel="stylesheet" href="/dashboard.css?v=2">
+  <script src="/atlas.js?v=1" defer></script>
+  <script src="/dashboard.js?v=2" defer></script>
 </head>
 <body data-view="overview">
   <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -36,6 +37,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 15h11M9 8h6"/></svg>
           <span>Memory</span>
         </button>
+        <button class="nav-item" type="button" data-nav="atlas">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9.5 4.5a3 3 0 0 0-4 2.8 3.5 3.5 0 0 0-.4 6.7A3.2 3.2 0 0 0 9 19.5c1.1-.5 1.8-1.4 2-2.5V7.5a3 3 0 0 0-1.5-3Z"/><path d="M14.5 4.5a3 3 0 0 1 4 2.8 3.5 3.5 0 0 1 .4 6.7 3.2 3.2 0 0 1-3.9 5.5c-1.1-.5-1.8-1.4-2-2.5V7.5a3 3 0 0 1 1.5-3ZM8 9.5h3M13 12h3M8 15h3"/></svg>
+          <span>Atlas</span>
+        </button>
         <button class="nav-item" type="button" data-nav="projects">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4V7Z"/><path d="M8 4h5l2 3"/></svg>
           <span>Projects</span>
@@ -44,6 +49,10 @@
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M19 15.5A8 8 0 0 1 8.5 5a8 8 0 1 0 10.5 10.5Z"/><path d="m16 5 .5 1.5L18 7l-1.5.5L16 9l-.5-1.5L14 7l1.5-.5L16 5Z"/></svg>
           <span>Dreams</span>
         </button>
+        <button class="nav-item" type="button" data-nav="settings">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>
+          <span>Settings</span>
+        </button>
       </nav>
 
       <div class="sidebar-footer">
@@ -51,7 +60,7 @@
           <span class="live-dot" aria-hidden="true"></span>
           <span><strong id="sidebar-connection">Connecting</strong><small id="sidebar-host">Local telemetry</small></span>
         </div>
-        <button class="profile-chip" type="button" data-nav="memory" aria-label="Open Claudia's identity and memory">
+        <button class="profile-chip" type="button" data-nav="settings" aria-label="Open dashboard settings">
           <span class="profile-avatar" aria-hidden="true">🦂</span>
           <span><strong>Claudia</strong><small id="sidebar-vibe">Personal AI</small></span>
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
@@ -61,20 +70,23 @@
 
     <div class="workspace">
       <header class="topbar">
-        <button class="mobile-brand" type="button" data-nav="overview" aria-label="Claudia, go to overview">
+        <button class="mobile-brand" type="button" data-nav="overview">
           <span class="brand-mark small" aria-hidden="true">C</span><strong>Claudia</strong>
         </button>
         <div class="breadcrumbs" aria-label="Current location">
           <span>Dashboard</span><span aria-hidden="true">/</span><strong id="current-view-label">Overview</strong>
         </div>
         <div class="topbar-actions">
-          <button class="command-trigger" id="command-trigger" type="button" aria-haspopup="dialog">
+          <button class="command-trigger" id="command-trigger" type="button" aria-haspopup="dialog" aria-label="Search dashboard">
             <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
             <span>Search anything</span><kbd>⌘ K</kbd>
           </button>
           <div class="clock" aria-label="Current local time"><strong id="clock-time">--:--</strong><small id="clock-date">Loading</small></div>
           <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh dashboard data">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>
+          </button>
+          <button class="icon-button" id="settings-button" type="button" data-nav="settings" aria-label="Open settings">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1A8 8 0 0 0 14.8 6l-.3-2.6h-4L10.2 6a8 8 0 0 0-1.7 1.1l-2.4-1-2 3.4 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a8 8 0 0 0 1.7 1.1l.3 2.6h4l.3-2.6a8 8 0 0 0 1.7-1.1l2.4 1 2-3.4-2-1.5a7 7 0 0 0 .1-1Z"/></svg>
           </button>
           <button class="icon-button" id="live-toggle" type="button" aria-label="Pause automatic refresh" aria-pressed="true">
             <svg class="pause-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>
@@ -210,6 +222,89 @@
           </div>
         </section>
 
+        <section class="view atlas-view" id="view-atlas" data-view-panel="atlas" aria-labelledby="atlas-title" hidden>
+          <div class="section-hero atlas-hero">
+            <div>
+              <p class="eyebrow"><span class="atlas-eyebrow-pulse" aria-hidden="true"></span>Living topology</p>
+              <h1 id="atlas-title">The shape of what you know.</h1>
+              <p>A living anatomical map of the vault—notes as neurons, links as pathways, and the whole strange machine glowing in real time.</p>
+            </div>
+            <div class="atlas-hero-stats" aria-label="Atlas summary">
+              <div><strong id="atlas-node-total">—</strong><span>notes</span></div>
+              <div><strong id="atlas-edge-total">—</strong><span>pathways</span></div>
+              <div><strong id="atlas-hub-total">—</strong><span>hubs</span></div>
+            </div>
+          </div>
+
+          <section class="atlas-shell panel" aria-label="Interactive Brain Atlas">
+            <header class="atlas-toolbar">
+              <div class="atlas-signal" aria-live="polite">
+                <span class="live-dot" aria-hidden="true"></span>
+                <span><strong>Brain Atlas</strong><small id="atlas-updated">Awaiting live graph</small></span>
+              </div>
+              <label class="atlas-search search-field">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+                <span class="sr-only">Search atlas notes</span>
+                <input id="atlas-search" type="search" placeholder="Find a thought…" autocomplete="off">
+              </label>
+              <div class="atlas-toolbar-actions" role="group" aria-label="Atlas display controls">
+                <button class="atlas-tool-button" id="atlas-list-toggle" type="button" aria-label="Open atlas note index" aria-controls="atlas-index" aria-expanded="false"><span aria-hidden="true">☷</span><span>Index</span></button>
+                <button class="atlas-tool-button" id="atlas-labels" type="button" aria-label="Toggle atlas labels" aria-pressed="true"><span aria-hidden="true">Aa</span><span>Labels</span></button>
+                <button class="atlas-tool-button" id="atlas-motion" type="button" aria-label="Toggle atlas motion" aria-pressed="true"><span aria-hidden="true">◉</span><span>Motion</span></button>
+              </div>
+            </header>
+
+            <div class="atlas-region-rail" id="atlas-region-rail" aria-label="Brain region filters">
+              <button class="atlas-region-chip region-frontal" type="button" data-atlas-region="frontal" aria-pressed="true"><span aria-hidden="true"></span><strong>Frontal</strong><small id="atlas-region-frontal">0</small></button>
+              <button class="atlas-region-chip region-parietal" type="button" data-atlas-region="parietal" aria-pressed="true"><span aria-hidden="true"></span><strong>Parietal</strong><small id="atlas-region-parietal">0</small></button>
+              <button class="atlas-region-chip region-temporal" type="button" data-atlas-region="temporal" aria-pressed="true"><span aria-hidden="true"></span><strong>Temporal</strong><small id="atlas-region-temporal">0</small></button>
+              <button class="atlas-region-chip region-occipital" type="button" data-atlas-region="occipital" aria-pressed="true"><span aria-hidden="true"></span><strong>Occipital</strong><small id="atlas-region-occipital">0</small></button>
+              <button class="atlas-region-chip region-cerebellum" type="button" data-atlas-region="cerebellum" aria-pressed="true"><span aria-hidden="true"></span><strong>Cerebellum</strong><small id="atlas-region-cerebellum">0</small></button>
+              <button class="atlas-region-chip region-stem" type="button" data-atlas-region="stem" aria-pressed="true"><span aria-hidden="true"></span><strong>Brain stem</strong><small id="atlas-region-stem">0</small></button>
+            </div>
+
+            <div class="atlas-stage-wrap">
+              <div class="atlas-stage" id="atlas-stage">
+                <canvas id="atlas-canvas" tabindex="0" role="application" aria-label="Interactive three-dimensional atlas of Claudia's Markdown vault" aria-describedby="atlas-instructions"></canvas>
+                <div class="atlas-grid-overlay" aria-hidden="true"></div>
+                <div class="atlas-vignette" aria-hidden="true"></div>
+                <div class="atlas-orientation" aria-hidden="true"><span>N</span><i></i><span>S</span></div>
+                <div class="atlas-camera-controls" aria-label="Atlas camera controls">
+                  <button id="atlas-zoom-in" type="button" aria-label="Zoom atlas in">+</button>
+                  <button id="atlas-zoom-out" type="button" aria-label="Zoom atlas out">−</button>
+                  <button id="atlas-reset" type="button" aria-label="Reset atlas camera">↺</button>
+                </div>
+                <p class="atlas-instructions" id="atlas-instructions">Drag to rotate. Scroll or use plus and minus to zoom. Arrow keys rotate; R resets; Space pauses motion. Search or open the index for a keyboard-accessible list of every note.</p>
+                <div class="atlas-loading" id="atlas-loading" role="status"><span class="atlas-loader" aria-hidden="true"></span><strong>Mapping the cortex</strong><small>Resolving notes and neural pathways…</small></div>
+              </div>
+
+              <aside class="atlas-inspector" aria-label="Selected atlas note">
+                <div class="atlas-inspector-empty" id="atlas-inspector-empty"><span aria-hidden="true">✦</span><strong>Touch a thought</strong><p>Select a node or search the index to inspect its region, kind, and connections.</p></div>
+                <div class="atlas-inspector-content" id="atlas-inspector-content" hidden aria-live="polite">
+                  <div class="atlas-node-meta"><span id="atlas-node-kind">Concept</span><span id="atlas-node-region">Parietal</span></div>
+                  <h2 id="atlas-node-title">Selected note</h2>
+                  <p id="atlas-node-summary"></p>
+                  <dl class="atlas-node-stats"><div><dt>Connections</dt><dd id="atlas-node-degree">0</dd></div><div><dt>Words</dt><dd id="atlas-node-words">0</dd></div><div><dt>Classified by</dt><dd id="atlas-node-source">—</dd></div></dl>
+                  <div class="atlas-node-path" id="atlas-node-path"></div>
+                  <button class="atlas-open-memory" id="atlas-open-memory" type="button" hidden>Open in Memory <span aria-hidden="true">↗</span></button>
+                </div>
+              </aside>
+
+              <aside class="atlas-index" id="atlas-index" aria-label="Atlas note index" hidden>
+                <header><div><span>Accessible index</span><strong id="atlas-index-summary">All notes</strong></div><button id="atlas-index-close" type="button" aria-label="Close atlas index">×</button></header>
+                <div class="atlas-node-list" id="atlas-node-list" role="list"></div>
+              </aside>
+            </div>
+
+            <footer class="atlas-footer">
+              <span><i class="atlas-footer-pulse" aria-hidden="true"></i><strong id="atlas-connected-total">—</strong> connected notes</span>
+              <span><strong id="atlas-density">—</strong> neural density</span>
+              <span><strong id="atlas-unlinked-total">—</strong> unlinked</span>
+              <span>Brain Atlas v0.2.2 · dashboard-native</span>
+            </footer>
+          </section>
+        </section>
+
         <section class="view" id="view-projects" data-view-panel="projects" aria-labelledby="projects-title" hidden>
           <div class="section-hero"><div><p class="eyebrow">Active work</p><h1 id="projects-title">Projects with a pulse.</h1><p>Current direction, decisions, and loose threads—derived from memory, never duplicated.</p></div><div class="hero-number"><strong id="project-total">—</strong><span>active projects</span></div></div>
           <div class="projects-layout">
@@ -225,6 +320,34 @@
             <div class="dream-feed" id="dream-feed" aria-live="polite"><div class="panel dream-card skeleton block-skeleton"></div></div>
           </div>
         </section>
+
+        <section class="view" id="view-settings" data-view-panel="settings" aria-labelledby="settings-title" hidden>
+          <div class="section-hero settings-hero"><div><p class="eyebrow">Security control</p><h1 id="settings-title">Lock the cockpit.</h1><p>Rotate the dashboard credential without touching a terminal. The encrypted credential is replaced atomically, then the service restarts.</p></div><div class="security-orb" aria-hidden="true"><span>⌁</span></div></div>
+          <div class="settings-grid">
+            <article class="panel password-panel">
+              <header><div><p class="eyebrow">Authentication</p><h2>Change dashboard password</h2></div><span class="security-badge">Encrypted</span></header>
+              <form id="password-form">
+                <label for="current-password">Current password</label>
+                <input id="current-password" name="current-password" type="password" autocomplete="current-password" required maxlength="512" aria-label="Current password">
+                <label for="new-password">New password</label>
+                <input id="new-password" name="new-password" type="password" autocomplete="new-password" required minlength="20" maxlength="128" aria-label="New password" aria-describedby="password-guidance password-strength-label">
+                <div class="strength-track" aria-hidden="true"><span id="password-strength"></span></div>
+                <small id="password-strength-label">Strength: waiting for input</small>
+                <label for="confirm-password">Confirm new password</label>
+                <input id="confirm-password" name="confirm-password" type="password" autocomplete="new-password" required minlength="20" maxlength="128" aria-label="Confirm new password">
+                <label class="show-secret"><input id="show-passwords" type="checkbox" aria-label="Show passwords"><span>Show passwords</span></label>
+                <p id="password-guidance">Use at least 20 characters. A long, unique passphrase is both stronger and less miserable to type.</p>
+                <button class="primary-action" id="password-submit" type="submit"><span>Rotate password</span><span aria-hidden="true">→</span></button>
+                <p class="form-status" id="password-status" role="status" aria-live="polite"></p>
+              </form>
+            </article>
+            <aside class="settings-stack">
+              <article class="panel security-card"><span class="security-card-icon">◈</span><div><small>Credential storage</small><strong>Systemd encrypted credential</strong><p>The plaintext password never enters the repository or dashboard files.</p></div></article>
+              <article class="panel security-card"><span class="security-card-icon mint">↻</span><div><small>After rotation</small><strong>Reconnect required</strong><p>The dashboard restarts and your browser will ask for the new password.</p></div></article>
+              <article class="panel security-card"><span class="security-card-icon amber">⚿</span><div><small>Protection</small><strong>Same-origin + current-password check</strong><p>Cross-site requests and unauthenticated changes are rejected.</p></div></article>
+            </aside>
+          </div>
+        </section>
       </main>
     </div>
   </div>
@@ -232,7 +355,7 @@
   <nav class="mobile-nav" aria-label="Dashboard sections">
     <button class="active" type="button" data-nav="overview" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v10h-6zM4 14h6v6H4zM14 18h6v2h-6z"/></svg><span>Home</span></button>
     <button type="button" data-nav="memory"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 15h11M9 8h6"/></svg><span>Memory</span></button>
-    <button class="mobile-command" type="button" id="mobile-command" aria-haspopup="dialog" aria-label="Search dashboard"><span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg></span></button>
+    <button class="mobile-command mobile-atlas" type="button" data-nav="atlas" aria-label="Open Brain Atlas"><span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9.5 4.5a3 3 0 0 0-4 2.8 3.5 3.5 0 0 0-.4 6.7A3.2 3.2 0 0 0 9 19.5c1.1-.5 1.8-1.4 2-2.5V7.5a3 3 0 0 0-1.5-3Z"/><path d="M14.5 4.5a3 3 0 0 1 4 2.8 3.5 3.5 0 0 1 .4 6.7 3.2 3.2 0 0 1-3.9 5.5c-1.1-.5-1.8-1.4-2-2.5V7.5a3 3 0 0 1 1.5-3Z"/></svg></span><em>Atlas</em></button>
     <button type="button" data-nav="projects"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4V7Z"/></svg><span>Projects</span></button>
     <button type="button" data-nav="dreams"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M19 15.5A8 8 0 0 1 8.5 5a8 8 0 1 0 10.5 10.5Z"/></svg><span>Dreams</span></button>
   </nav>

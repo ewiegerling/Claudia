@@ -1,13 +1,15 @@
 import { createServer } from 'node:http';
-import { watch } from 'node:fs';
-import { readFile, readdir, stat, statfs } from 'node:fs/promises';
-import { execFile } from 'node:child_process';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { constants as fsConstants, watch } from 'node:fs';
+import { chmod, open, readFile, readdir, rename, stat, statfs, unlink } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
+import { loadAtlas } from './atlas.mjs';
 
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(APP_DIR, 'public');
@@ -15,8 +17,15 @@ const WORKSPACE_DIR = path.dirname(APP_DIR);
 const MEMORY_DIR = path.join(WORKSPACE_DIR, 'memory');
 const DREAMS_PATH = path.join(WORKSPACE_DIR, 'DREAMS.md');
 const DREAMING_DIR = path.join(MEMORY_DIR, 'dreaming');
-const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), '.openclaw', 'openclaw.json');
 const execFileAsync = promisify(execFile);
+const AUTH_CREDENTIAL_NAME = 'dashboard-auth';
+const PUBLIC_HOST = process.env.DASHBOARD_PUBLIC_HOST || 'dashboard.example.com';
+const MAX_BRAIN_DOCUMENTS = 400;
+const MAX_MEMORY_FILE_BYTES = 512 * 1024;
+const MAX_BRAIN_TOTAL_BYTES = 16 * 1024 * 1024;
+const MAX_DREAM_REPORT_BYTES = 8 * 1024 * 1024;
+const MAX_LIVE_CLIENTS = 32;
+const SOURCE_BYTES = Symbol('sourceBytes');
 const SERVICE_DEFINITIONS = [
   { id: 'claudia-dashboard', name: 'Claudia Dashboard', unit: 'claudia-dashboard.service', description: 'Private operations and memory dashboard' },
   { id: 'openclaw-gateway', name: 'OpenClaw Gateway', unit: 'openclaw-gateway.service', description: 'Agent runtime and integration gateway' },
@@ -41,7 +50,136 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
 };
 
-function createLiveUpdates() {
+function isLoopbackAddress(address) {
+  const normalized = String(address || '').toLowerCase();
+  return normalized === '127.0.0.1' || normalized === '::1' || normalized.startsWith('::ffff:127.');
+}
+
+function secureTextEqual(left, right) {
+  const digest = (value) => createHash('sha256').update(String(value), 'utf8').digest();
+  return timingSafeEqual(digest(left), digest(right));
+}
+
+function parseBasicAuthorization(value) {
+  const match = /^Basic ([A-Za-z0-9+/]{4,2048}={0,2})$/.exec(String(value || ''));
+  if (!match) return null;
+  try {
+    const decoded = Buffer.from(match[1], 'base64').toString('utf8');
+    const separator = decoded.indexOf(':');
+    if (separator < 1) return null;
+    return Object.fromEntries([
+      ['username', decoded.slice(0, separator)],
+      ['password', decoded.slice(separator + 1)],
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+async function loadDashboardAuthentication() {
+  const environmentUsername = process.env.DASHBOARD_AUTH_USER;
+  const environmentSecret = process.env['DASHBOARD_AUTH_PASSWORD'];
+  let authentication = environmentUsername && environmentSecret
+    ? Object.fromEntries([['username', environmentUsername], ['password', environmentSecret]])
+    : null;
+
+  if (!authentication && process.env.CREDENTIALS_DIRECTORY) {
+    const credentialPath = path.join(process.env.CREDENTIALS_DIRECTORY, AUTH_CREDENTIAL_NAME);
+    const payload = JSON.parse(await readFile(credentialPath, 'utf8'));
+    authentication = Object.fromEntries([['username', payload.username], ['password', payload['password']]]);
+  }
+
+  if (!authentication) return null;
+  if (typeof authentication.username !== 'string' || typeof authentication.password !== 'string'
+    || authentication.username.length < 1 || authentication.username.length > 128
+    || authentication.password.length < 20 || authentication.password.length > 512) {
+    throw new Error('Dashboard authentication credential is invalid.');
+  }
+  return Object.freeze(authentication);
+}
+
+function requestIsAuthorized(request, authentication) {
+  const supplied = parseBasicAuthorization(request.headers.authorization);
+  return Boolean(supplied
+    && secureTextEqual(supplied.username, authentication.username)
+    && secureTextEqual(supplied.password, authentication.password));
+}
+
+function requestUsedPlainHttp(request) {
+  const forwardedProtocol = String(request.headers['x-forwarded-proto'] || '')
+    .split(',')[0].trim().toLowerCase();
+  return forwardedProtocol === 'http';
+}
+
+async function readJsonBody(request, maximumBytes = 4096) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maximumBytes) throw Object.assign(new Error('Request body is too large.'), { statusCode: 413 });
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    throw Object.assign(new Error('Request body must be valid JSON.'), { statusCode: 400 });
+  }
+}
+
+function requestHasSameOrigin(request) {
+  const origin = String(request.headers.origin || '');
+  const forwardedProtocol = String(request.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const protocol = forwardedProtocol || 'http';
+  const forwardedHost = String(request.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  const host = forwardedHost || String(request.headers.host || '');
+  return origin === `${protocol}://${host}` || origin === `https://${PUBLIC_HOST}`;
+}
+
+async function rotateDashboardAuthentication(authentication, nextSecret) {
+  const credentialPath = process.env.DASHBOARD_AUTH_CREDENTIAL_PATH;
+  if (!credentialPath) throw Object.assign(new Error('Password rotation is unavailable.'), { statusCode: 503 });
+  const temporaryPath = `${credentialPath}.next-${randomUUID()}`;
+  const payload = JSON.stringify(Object.fromEntries([
+    ['username', authentication.username],
+    ['password', nextSecret],
+  ]));
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn('/usr/bin/systemd-creds', ['encrypt', '--user', `--name=${AUTH_CREDENTIAL_NAME}`, '-', temporaryPath], {
+        stdio: ['pipe', 'ignore', 'pipe'],
+      });
+      let diagnostic = '';
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk) => { diagnostic = `${diagnostic}${chunk}`.slice(-1000); });
+      child.on('error', reject);
+      child.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Credential encryption failed (${code}): ${diagnostic.trim()}`)));
+      child.stdin.end(payload);
+    });
+    await chmod(temporaryPath, 0o600);
+    await rename(temporaryPath, credentialPath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
+  setTimeout(() => {
+    execFile('/usr/bin/systemctl', ['--user', 'restart', '--no-block', 'claudia-dashboard.service'], (error) => {
+      if (error) console.error('Dashboard restart after password rotation failed:', error.message);
+    });
+  }, 600).unref();
+}
+
+function redirectToHttps(response, url, headOnly = false) {
+  const location = `https://${PUBLIC_HOST}${url.pathname}${url.search}`;
+  response.writeHead(308, {
+    ...SECURITY_HEADERS,
+    'Cache-Control': 'no-store',
+    'Content-Length': '0',
+    Location: location,
+  });
+  response.end(headOnly ? undefined : '');
+}
+
+function createLiveUpdates(onMemoryChange = () => {}) {
   const clients = new Set();
   const watchers = [];
   let version = Date.now();
@@ -49,13 +187,19 @@ function createLiveUpdates() {
 
   const broadcast = (event, payload) => {
     const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
-    for (const client of clients) client.write(frame);
+    for (const client of clients) {
+      if (!client.write(frame)) {
+        clients.delete(client);
+        client.end();
+      }
+    }
   };
 
   const scheduleChange = (changedPath) => {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       version = Date.now();
+      onMemoryChange();
       broadcast('memory', { version, changed: changedPath || 'memory', at: new Date().toISOString() });
     }, 180);
   };
@@ -65,12 +209,19 @@ function createLiveUpdates() {
     ['IDENTITY.md', path.join(WORKSPACE_DIR, 'IDENTITY.md')],
     ['USER.md', path.join(WORKSPACE_DIR, 'USER.md')],
     ['SOUL.md', path.join(WORKSPACE_DIR, 'SOUL.md')],
+    ['AGENTS.md', path.join(WORKSPACE_DIR, 'AGENTS.md')],
+    ['Claudia.md', path.join(WORKSPACE_DIR, 'Claudia.md')],
+    ['HEARTBEAT.md', path.join(WORKSPACE_DIR, 'HEARTBEAT.md')],
+    ['TOOLS.md', path.join(WORKSPACE_DIR, 'TOOLS.md')],
     ['DREAMS.md', DREAMS_PATH],
-    ['memory', MEMORY_DIR],
+    ['memory', MEMORY_DIR, true],
+    ['skills', path.join(WORKSPACE_DIR, 'skills'), true],
+    ['templates', path.join(WORKSPACE_DIR, 'templates'), true],
+    ['dashboard-docs', APP_DIR],
   ];
-  for (const [label, target] of targets) {
+  for (const [label, target, recursive = false] of targets) {
     try {
-      const watcher = watch(target, { persistent: false }, (_eventType, filename) => {
+      const watcher = watch(target, { persistent: false, recursive }, (_eventType, filename) => {
         scheduleChange(filename ? `${label}/${filename}`.replace('.md/', '/') : label);
       });
       watcher.on('error', (error) => console.warn(`Memory watcher warning for ${label}:`, error.message));
@@ -81,7 +232,12 @@ function createLiveUpdates() {
   }
 
   const heartbeat = setInterval(() => {
-    for (const client of clients) client.write(`: heartbeat ${Date.now()}\n\n`);
+    for (const client of clients) {
+      if (!client.write(`: heartbeat ${Date.now()}\n\n`)) {
+        clients.delete(client);
+        client.end();
+      }
+    }
   }, 20_000);
   heartbeat.unref();
 
@@ -245,6 +401,39 @@ function createTelemetryCollector(liveUpdates, runtimeStats) {
   };
 }
 
+function createAtlasCollector() {
+  let cached = null;
+  let cachedAt = 0;
+  let pending = null;
+  let version = 0;
+  const maxAgeMs = 5000;
+
+  const collectAtlas = async function collectAtlas() {
+    if (cached && Date.now() - cachedAt < maxAgeMs) return cached;
+    if (pending?.version === version) return pending.promise;
+    const requestVersion = version;
+    const promise = loadAtlas(WORKSPACE_DIR)
+      .then((atlas) => {
+        if (version === requestVersion) {
+          cached = atlas;
+          cachedAt = Date.now();
+        }
+        return atlas;
+      })
+      .finally(() => {
+        if (pending?.promise === promise) pending = null;
+      });
+    pending = { promise, version: requestVersion };
+    return promise;
+  };
+  collectAtlas.invalidate = () => {
+    version += 1;
+    cached = null;
+    cachedAt = 0;
+  };
+  return collectAtlas;
+}
+
 marked.setOptions({ gfm: true });
 
 function parseFrontmatter(source) {
@@ -296,7 +485,25 @@ function extractIdentity(source) {
 }
 
 async function readMemoryDocument(absolutePath, relativePath) {
-  const [source, fileStat] = await Promise.all([readFile(absolutePath, 'utf8'), stat(absolutePath)]);
+  const handle = await open(absolutePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0));
+  let source;
+  let fileStat;
+  try {
+    fileStat = await handle.stat();
+    if (!fileStat.isFile() || fileStat.size > MAX_MEMORY_FILE_BYTES) {
+      throw new Error('Memory document exceeds its read-only size limit.');
+    }
+    const buffer = Buffer.alloc(fileStat.size);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const result = await handle.read(buffer, offset, buffer.length - offset, offset);
+      if (!result.bytesRead) break;
+      offset += result.bytesRead;
+    }
+    source = buffer.subarray(0, offset).toString('utf8');
+  } finally {
+    await handle.close();
+  }
   const { attributes, body } = parseFrontmatter(source);
   const title = attributes.title || body.match(/^#\s+(.+)$/m)?.[1] || path.basename(relativePath, '.md');
   const words = body.trim().match(/\S+/g)?.length || 0;
@@ -312,6 +519,7 @@ async function readMemoryDocument(absolutePath, relativePath) {
     wordCount: words,
     raw: body.trim(),
     html: safeMarkdown(body),
+    [SOURCE_BYTES]: Buffer.byteLength(source),
   };
 }
 
@@ -323,11 +531,23 @@ async function loadBrain() {
     .map((entry) => entry.name)
     .sort((a, b) => b.localeCompare(a));
 
-  const [identitySource, longTerm, ...daily] = await Promise.all([
-    readFile(identityPath, 'utf8'),
+  const [identity, longTerm] = await Promise.all([
+    readMemoryDocument(identityPath, 'IDENTITY.md'),
     readMemoryDocument(path.join(WORKSPACE_DIR, 'MEMORY.md'), 'MEMORY.md'),
-    ...dailyFiles.map((name) => readMemoryDocument(path.join(MEMORY_DIR, name), `memory/${name}`)),
   ]);
+  const daily = [];
+  let totalBytes = identity[SOURCE_BYTES] + longTerm[SOURCE_BYTES];
+  let skippedDocuments = 0;
+  for (const name of dailyFiles.slice(0, MAX_BRAIN_DOCUMENTS - 1)) {
+    const document = await readMemoryDocument(path.join(MEMORY_DIR, name), `memory/${name}`).catch(() => null);
+    if (!document || totalBytes + document[SOURCE_BYTES] > MAX_BRAIN_TOTAL_BYTES) {
+      skippedDocuments += 1;
+      continue;
+    }
+    totalBytes += document[SOURCE_BYTES];
+    daily.push(document);
+  }
+  skippedDocuments += Math.max(0, dailyFiles.length - (MAX_BRAIN_DOCUMENTS - 1));
 
   const documents = [longTerm, ...daily];
   const latestModified = documents.reduce(
@@ -336,7 +556,7 @@ async function loadBrain() {
   );
 
   return {
-    identity: extractIdentity(identitySource),
+    identity: extractIdentity(identity.raw),
     readOnly: true,
     generatedAt: new Date().toISOString(),
     stats: {
@@ -344,6 +564,10 @@ async function loadBrain() {
       dailyMemories: daily.length,
       words: documents.reduce((sum, document) => sum + document.wordCount, 0),
       lastUpdated: latestModified,
+      sourceBytes: totalBytes,
+      skippedDocuments,
+      truncated: skippedDocuments > 0,
+      limits: { documents: MAX_BRAIN_DOCUMENTS, fileBytes: MAX_MEMORY_FILE_BYTES, totalBytes: MAX_BRAIN_TOTAL_BYTES },
     },
     documents,
   };
@@ -382,24 +606,25 @@ function dreamDiaryEntries(diary) {
 }
 
 async function loadDreams() {
-  const [configSource, diary] = await Promise.all([
-    readFile(OPENCLAW_CONFIG_PATH, 'utf8').catch(() => '{}'),
-    readMemoryDocument(DREAMS_PATH, 'DREAMS.md').catch(() => null),
-  ]);
-  let dreaming = {};
-  try {
-    const config = JSON.parse(configSource);
-    dreaming = config?.plugins?.entries?.['memory-core']?.config?.dreaming || {};
-  } catch {
-    dreaming = {};
-  }
+  const diary = await readMemoryDocument(DREAMS_PATH, 'DREAMS.md').catch(() => null);
+  const dreaming = {
+    enabled: process.env.DASHBOARD_DREAMS_ENABLED === 'true',
+    frequency: process.env.DASHBOARD_DREAMS_FREQUENCY || 'Schedule unavailable',
+    timezone: process.env.DASHBOARD_DREAMS_TIMEZONE || 'local',
+  };
 
   const reports = [];
-  for (const phase of ['light', 'rem', 'deep']) {
+  let reportBytes = 0;
+  let reportsTruncated = false;
+  reportPhases: for (const phase of ['light', 'rem', 'deep']) {
     const phaseDirectory = path.join(DREAMING_DIR, phase);
     const entries = await readdir(phaseDirectory, { withFileTypes: true }).catch(() => []);
     for (const entry of entries.filter((candidate) => candidate.isFile() && candidate.name.endsWith('.md')).sort((a, b) => b.name.localeCompare(a.name)).slice(0, 20)) {
       const report = await readMemoryDocument(path.join(phaseDirectory, entry.name), `memory/dreaming/${phase}/${entry.name}`).catch(() => null);
+      if (report && reportBytes + report[SOURCE_BYTES] > MAX_DREAM_REPORT_BYTES) {
+        reportsTruncated = true;
+        break reportPhases;
+      }
       if (report) reports.push({
         id: report.id,
         path: report.path,
@@ -410,6 +635,7 @@ async function loadDreams() {
         phase,
         html: safeMarkdown(report.raw.replaceAll(WORKSPACE_DIR, '[workspace]')),
       });
+      if (report) reportBytes += report[SOURCE_BYTES];
     }
   }
   reports.sort((a, b) => String(b.date || b.modifiedAt).localeCompare(String(a.date || a.modifiedAt)));
@@ -430,6 +656,9 @@ async function loadDreams() {
       reports: reports.length,
       words: diary?.wordCount || 0,
       lastDreamed: diary?.modifiedAt || null,
+      reportBytes,
+      truncated: reportsTruncated,
+      limits: { reports: 60, fileBytes: MAX_MEMORY_FILE_BYTES, totalBytes: MAX_DREAM_REPORT_BYTES },
     },
     diary: diary ? {
       id: diary.id,
@@ -733,24 +962,88 @@ async function serveStatic(requestPath, response, headOnly = false) {
   }
 }
 
-export function createDashboardServer() {
-  const liveUpdates = createLiveUpdates();
+export function createDashboardServer({ authenticationRotator = rotateDashboardAuthentication } = {}) {
+  const collectAtlas = createAtlasCollector();
+  const liveUpdates = createLiveUpdates(() => collectAtlas.invalidate());
   const runtimeStats = { startedAt: new Date().toISOString(), requests: 0, errors: 0 };
   const collectTelemetry = createTelemetryCollector(liveUpdates, runtimeStats);
-  const server = createServer(async (request, response) => {
+  const authenticationStatePromise = loadDashboardAuthentication()
+    .then((authentication) => ({ authentication, error: null }))
+    .catch((error) => ({ authentication: null, error }));
+  let passwordChangePending = false;
+  const handleRequest = async (request, response) => {
     runtimeStats.requests += 1;
-    const url = new URL(request.url || '/', 'http://localhost');
     const headOnly = request.method === 'HEAD';
+    let url;
+    try {
+      url = new URL(request.url || '/', 'http://localhost');
+    } catch {
+      return jsonResponse(response, 400, { error: 'Malformed request target.' }, headOnly);
+    }
 
-    if (request.method !== 'GET' && !headOnly) {
+    const rotatesCredential = request.method === 'POST' && url.pathname === '/api/settings/password';
+    if (request.method !== 'GET' && !headOnly && !rotatesCredential) {
       return jsonResponse(response, 405, { error: 'Read-only means read-only.' }, headOnly, { Allow: 'GET, HEAD' });
     }
+
+    if (requestUsedPlainHttp(request)) return redirectToHttps(response, url, headOnly);
 
     if (url.pathname === '/api/health') {
       return jsonResponse(response, 200, { ok: true, readOnly: true }, headOnly);
     }
 
+    const authenticationState = await authenticationStatePromise;
+    if (authenticationState.error) {
+      const error = authenticationState.error;
+      console.error('Dashboard authentication could not be loaded:', error.message);
+      return jsonResponse(response, 503, { error: 'Dashboard authentication is unavailable.' }, headOnly);
+    }
+    const { authentication } = authenticationState;
+    if (!authentication && !isLoopbackAddress(request.socket.remoteAddress)) {
+      return jsonResponse(response, 503, { error: 'Dashboard authentication is not configured.' }, headOnly);
+    }
+    if (authentication && !requestIsAuthorized(request, authentication)) {
+      return jsonResponse(response, 401, { error: 'Authentication required.' }, headOnly, {
+        'WWW-Authenticate': 'Basic realm="Claudia Dashboard", charset="UTF-8"',
+      });
+    }
+
+    if (rotatesCredential) {
+      if (!authentication) return jsonResponse(response, 503, { error: 'Dashboard authentication is not configured.' });
+      if (String(request.headers['content-type'] || '').toLowerCase() !== 'application/json'
+        || request.headers['x-claudia-settings'] !== 'password-change'
+        || !requestHasSameOrigin(request)) {
+        return jsonResponse(response, 403, { error: 'Password change request was rejected.' });
+      }
+      if (passwordChangePending) return jsonResponse(response, 409, { error: 'A password change is already in progress.' });
+      try {
+        const payload = await readJsonBody(request);
+        const currentSecret = payload?.currentPassword;
+        const nextSecret = payload?.newPassword;
+        const confirmation = payload?.confirmPassword;
+        if (typeof currentSecret !== 'string' || !secureTextEqual(currentSecret, authentication.password)) {
+          return jsonResponse(response, 403, { error: 'Current password is incorrect.' });
+        }
+        if (typeof nextSecret !== 'string' || nextSecret.length < 20 || nextSecret.length > 128) {
+          return jsonResponse(response, 400, { error: 'New password must be 20–128 characters.' });
+        }
+        if (nextSecret !== confirmation) return jsonResponse(response, 400, { error: 'New passwords do not match.' });
+        if (secureTextEqual(nextSecret, currentSecret)) return jsonResponse(response, 400, { error: 'Choose a different password.' });
+        passwordChangePending = true;
+        await authenticationRotator(authentication, nextSecret);
+        return jsonResponse(response, 200, { ok: true, message: 'Password updated. Reconnect with the new password.' });
+      } catch (error) {
+        passwordChangePending = false;
+        const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+        if (statusCode === 500) console.error('Dashboard password rotation failed:', error.message);
+        return jsonResponse(response, statusCode, { error: statusCode === 500 ? 'Password rotation failed safely.' : error.message });
+      }
+    }
+
     if (url.pathname === '/api/events') {
+      if (liveUpdates.clientCount >= MAX_LIVE_CLIENTS) {
+        return jsonResponse(response, 503, { error: 'Live update capacity reached.' }, headOnly, { 'Retry-After': '5' });
+      }
       response.writeHead(200, {
         ...SECURITY_HEADERS,
         'Cache-Control': 'no-cache, no-transform',
@@ -771,6 +1064,15 @@ export function createDashboardServer() {
       } catch (error) {
         console.error(error);
         return jsonResponse(response, 500, { error: 'Memory telemetry is temporarily unavailable.' }, headOnly);
+      }
+    }
+
+    if (url.pathname === '/api/atlas') {
+      try {
+        return jsonResponse(response, 200, await collectAtlas(), headOnly);
+      } catch (error) {
+        console.error(error);
+        return jsonResponse(response, 500, { error: 'The atlas signal is temporarily unavailable.' }, headOnly);
       }
     }
 
@@ -826,6 +1128,17 @@ export function createDashboardServer() {
 
     if (await serveStatic(url.pathname, response, headOnly)) return;
     jsonResponse(response, 404, { error: 'Not found.' }, headOnly);
+  };
+  const server = createServer((request, response) => {
+    void handleRequest(request, response).catch((error) => {
+      runtimeStats.errors += 1;
+      console.error('Unhandled dashboard request error:', error);
+      if (!response.headersSent) {
+        jsonResponse(response, 500, { error: 'The dashboard hit an unexpected fault.' }, request.method === 'HEAD');
+      } else {
+        response.destroy();
+      }
+    });
   });
   server.on('close', () => liveUpdates.close());
   return server;

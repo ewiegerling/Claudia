@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import net from 'node:net';
+import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { createDashboardServer, safeMarkdown } from '../server.mjs';
 
@@ -27,6 +29,92 @@ test('health endpoint is read-only, private, and hardened', async () => {
   assert.match(response.headers.get('strict-transport-security'), /max-age=15552000/);
   assert.match(response.headers.get('content-security-policy'), /default-src 'self'/);
   assert.match(response.headers.get('cache-control'), /no-store/);
+});
+
+test('configured authentication protects every sensitive route and redirects proxy HTTP', async () => {
+  const previousUsername = process.env.DASHBOARD_AUTH_USER;
+  const previousSecret = process.env['DASHBOARD_AUTH_PASSWORD'];
+  process.env.DASHBOARD_AUTH_USER = 'audit-user';
+  Reflect.set(process.env, 'DASHBOARD_AUTH_PASSWORD', 'example-correct-horse-battery-staple-atlas');
+  const protectedServer = createDashboardServer();
+  if (previousUsername === undefined) delete process.env.DASHBOARD_AUTH_USER;
+  else process.env.DASHBOARD_AUTH_USER = previousUsername;
+  if (previousSecret === undefined) Reflect.deleteProperty(process.env, 'DASHBOARD_AUTH_PASSWORD');
+  else Reflect.set(process.env, 'DASHBOARD_AUTH_PASSWORD', previousSecret);
+
+  await new Promise((resolve) => protectedServer.listen(0, '127.0.0.1', resolve));
+  const protectedUrl = `http://127.0.0.1:${protectedServer.address().port}`;
+  const authorization = `Basic ${Buffer.from('audit-user:example-correct-horse-battery-staple-atlas').toString('base64')}`;
+  try {
+    assert.equal((await fetch(`${protectedUrl}/api/health`)).status, 200);
+    const anonymous = await fetch(`${protectedUrl}/api/brain`);
+    assert.equal(anonymous.status, 401);
+    assert.match(anonymous.headers.get('www-authenticate'), /Claudia Dashboard/);
+    assert.equal((await fetch(`${protectedUrl}/api/atlas`, {
+      headers: { Authorization: `Basic ${Buffer.from('audit-user:wrong-password-that-is-long-enough').toString('base64')}` },
+    })).status, 401);
+    assert.equal((await fetch(`${protectedUrl}/api/atlas`, { headers: { Authorization: authorization } })).status, 200);
+    const redirect = await fetch(`${protectedUrl}/api/brain?audit=1`, {
+      headers: { 'X-Forwarded-Proto': 'http' },
+      redirect: 'manual',
+    });
+    assert.equal(redirect.status, 308);
+    assert.equal(redirect.headers.get('location'), 'https://dashboard.example.com/api/brain?audit=1');
+  } finally {
+    await new Promise((resolve, reject) => protectedServer.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('password rotation requires authentication, same-origin intent, and a valid replacement', async () => {
+  const previousUsername = process.env.DASHBOARD_AUTH_USER;
+  const previousSecret = process.env['DASHBOARD_AUTH_PASSWORD'];
+  const currentSecret = 'example-current-dashboard-secret-2026';
+  const nextSecret = 'example-next-dashboard-secret-2026!';
+  process.env.DASHBOARD_AUTH_USER = 'settings-audit';
+  Reflect.set(process.env, 'DASHBOARD_AUTH_PASSWORD', currentSecret);
+  const rotations = [];
+  const protectedServer = createDashboardServer({
+    authenticationRotator: async (authentication, replacement) => rotations.push([authentication.username, replacement]),
+  });
+  if (previousUsername === undefined) delete process.env.DASHBOARD_AUTH_USER;
+  else process.env.DASHBOARD_AUTH_USER = previousUsername;
+  if (previousSecret === undefined) Reflect.deleteProperty(process.env, 'DASHBOARD_AUTH_PASSWORD');
+  else Reflect.set(process.env, 'DASHBOARD_AUTH_PASSWORD', previousSecret);
+  await new Promise((resolve) => protectedServer.listen(0, '127.0.0.1', resolve));
+  const protectedUrl = `http://127.0.0.1:${protectedServer.address().port}`;
+  const authorization = `Basic ${Buffer.from(`settings-audit:${currentSecret}`).toString('base64')}`;
+  const makePayload = (current = currentSecret, replacement = nextSecret, confirmation = nextSecret) => JSON.stringify(Object.fromEntries([
+    ['currentPassword', current], ['newPassword', replacement], ['confirmPassword', confirmation],
+  ]));
+  const headers = { Authorization: authorization, 'Content-Type': 'application/json', 'X-Claudia-Settings': 'password-change', Origin: protectedUrl };
+  try {
+    assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(), headers: { ...headers, Authorization: undefined } })).status, 401);
+    assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(), headers: { ...headers, Origin: 'https://hostile.invalid' } })).status, 403);
+    assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload('incorrect-current-dashboard-secret') , headers })).status, 403);
+    assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(currentSecret, 'too-short', 'too-short'), headers })).status, 400);
+    const success = await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(), headers });
+    assert.equal(success.status, 200);
+    assert.deepEqual(rotations, [['settings-audit', nextSecret]]);
+    assert.equal((await fetch(`${protectedUrl}/api/settings/password`, { method: 'POST', body: makePayload(), headers })).status, 409);
+    assert.equal((await fetch(`${protectedUrl}/api/brain`, { method: 'DELETE', headers: { Authorization: authorization } })).status, 405);
+  } finally {
+    await new Promise((resolve, reject) => protectedServer.close((error) => error ? reject(error) : resolve()));
+  }
+});
+
+test('malformed absolute request targets return 400 without crashing the server', async () => {
+  const payload = await new Promise((resolve, reject) => {
+    const socket = net.createConnection(server.address().port, '127.0.0.1');
+    let response = '';
+    socket.setEncoding('utf8');
+    socket.setTimeout(3000, () => socket.destroy(new Error('raw request timed out')));
+    socket.on('connect', () => socket.end('GET http://[invalid]/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n'));
+    socket.on('data', (chunk) => { response += chunk; });
+    socket.on('end', () => resolve(response));
+    socket.on('error', reject);
+  });
+  assert.match(payload, /^HTTP\/1\.1 400 /);
+  assert.equal((await fetch(`${baseUrl}/api/health`)).status, 200);
 });
 
 test('dashboard API exposes bounded read-only telemetry with current identities', async () => {
@@ -92,8 +180,43 @@ test('projects, dreams, graph, and history are derived read-only views', async (
   assert.ok(history.snapshots.length > 0);
 });
 
+test('Brain Atlas API exposes only bounded, relative, metadata-only topology', async () => {
+  const response = await fetch(`${baseUrl}/api/atlas`);
+  const atlas = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(atlas.readOnly, true);
+  assert.equal(Number.isNaN(Date.parse(atlas.generatedAt)), false);
+  assert.deepEqual(atlas.regions.map((region) => region.id), [
+    'frontal', 'parietal', 'temporal', 'occipital', 'cerebellum', 'stem',
+  ]);
+  assert.equal(atlas.regions.length, 6);
+  assert.ok(atlas.nodes.length > 0 && atlas.nodes.length <= 1500);
+  assert.ok(atlas.edges.length <= 4000);
+  assert.equal(atlas.stats.nodes, atlas.nodes.length);
+  assert.equal(atlas.stats.edges, atlas.edges.length);
+
+  const nodeIds = new Set(atlas.nodes.map((node) => node.id));
+  for (const node of atlas.nodes) {
+    assert.match(node.path, /^(?:[A-Za-z][\w.-]*\.md|(?:memory|skills|templates|claudia-dashboard)\/[^/].*\.md)$/);
+    assert.equal(path.isAbsolute(node.path), false);
+    assert.ok(['frontal', 'parietal', 'temporal', 'occipital', 'cerebellum', 'stem'].includes(node.region));
+    assert.ok(Number.isFinite(node.position.x));
+    assert.ok(Number.isFinite(node.position.y));
+    assert.ok(Number.isFinite(node.position.z));
+    for (const privateField of ['raw', 'html', 'body', 'content', 'sourceText', 'absolutePath']) {
+      assert.equal(privateField in node, false, `${node.path} must not expose ${privateField}`);
+    }
+  }
+  for (const edge of atlas.edges) {
+    assert.ok(nodeIds.has(edge.source));
+    assert.ok(nodeIds.has(edge.target));
+  }
+  assert.doesNotMatch(JSON.stringify(atlas), /(?:\/home\/|[A-Z]:\\\\Users\\\\)/);
+});
+
 test('new SPA and every local asset are served without remote dependencies', async () => {
-  const paths = ['/', '/index.html', '/dashboard.css?v=1', '/dashboard.js?v=1', '/manifest.webmanifest', '/icon.svg'];
+  const paths = ['/', '/index.html', '/dashboard.css?v=2', '/atlas.js?v=1', '/dashboard.js?v=2', '/manifest.webmanifest', '/icon.svg'];
   const responses = await Promise.all(paths.map((path) => fetch(`${baseUrl}${path}`)));
   responses.forEach((response) => assert.equal(response.status, 200));
   const html = await responses[0].text();
@@ -112,7 +235,7 @@ test('legacy panel pages stay retired', async () => {
 });
 
 test('HEAD works for proxy health checks without a response body', async () => {
-  for (const path of ['/', '/api/health', '/dashboard.css']) {
+  for (const path of ['/', '/api/health', '/api/atlas', '/dashboard.css', '/atlas.js']) {
     const response = await fetch(`${baseUrl}${path}`, { method: 'HEAD' });
     assert.equal(response.status, 200);
     assert.equal(await response.text(), '');
@@ -134,9 +257,11 @@ test('live event stream is proxy-safe and immediately ready', async () => {
 
 test('write methods, malformed paths, and traversal attempts are rejected', async () => {
   for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-    const response = await fetch(`${baseUrl}/api/brain`, { method });
-    assert.equal(response.status, 405);
-    assert.equal(response.headers.get('allow'), 'GET, HEAD');
+    for (const endpoint of ['/api/brain', '/api/atlas']) {
+      const response = await fetch(`${baseUrl}${endpoint}`, { method });
+      assert.equal(response.status, 405);
+      assert.equal(response.headers.get('allow'), 'GET, HEAD');
+    }
   }
   for (const path of ['/..%2F..%2FUSER.md', '/%2e%2e%2fMEMORY.md', '/%E0%A4%A']) {
     const response = await fetch(`${baseUrl}${path}`);

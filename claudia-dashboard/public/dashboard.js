@@ -1,6 +1,18 @@
 const state = {
   dashboard: null,
   brain: null,
+  atlas: null,
+  atlasRenderer: null,
+  atlasRendererData: null,
+  atlasLoading: false,
+  atlasDirty: true,
+  atlasRevision: 0,
+  atlasReloadQueued: false,
+  atlasIndexOpen: false,
+  atlasLabels: true,
+  atlasMotion: !matchMedia('(prefers-reduced-motion: reduce)').matches,
+  atlasRegions: new Map(),
+  selectedAtlasNode: null,
   projects: null,
   dreams: null,
   view: 'overview',
@@ -285,6 +297,170 @@ function selectDocument(id, focusViewer = true) {
   if (focusViewer) viewer.focus({ preventScroll: true });
 }
 
+function atlasRegionEnabled(region) {
+  return state.atlasRegions.get(region) !== false;
+}
+
+function ensureAtlasRenderer() {
+  if (state.atlasRenderer || !state.atlas || !window.ClaudiaAtlasRenderer) return state.atlasRenderer;
+  const canvas = $('#atlas-canvas');
+  if (!canvas) return null;
+  state.atlasRenderer = new window.ClaudiaAtlasRenderer(canvas, {
+    onSelect: (id) => selectAtlasNode(id, { fromCanvas: true }),
+  });
+  state.atlasRenderer.setMotion(state.atlasMotion);
+  state.atlasRenderer.setLabels(state.atlasLabels);
+  for (const region of state.atlas.regions || []) {
+    state.atlasRenderer.setRegion(region.id, atlasRegionEnabled(region.id));
+  }
+  state.atlasRenderer.setActive(state.view === 'atlas');
+  return state.atlasRenderer;
+}
+
+function atlasVisibleNodes(query = $('#atlas-search')?.value || '') {
+  const needle = query.trim().toLowerCase();
+  return (state.atlas?.nodes || [])
+    .filter((node) => atlasRegionEnabled(node.region))
+    .filter((node) => !needle || `${node.title} ${node.path} ${node.kindLabel} ${node.regionLabel}`.toLowerCase().includes(needle))
+    .sort((a, b) => Number(b.hub) - Number(a.hub) || b.degree - a.degree || a.title.localeCompare(b.title));
+}
+
+function renderAtlasIndex(query = $('#atlas-search')?.value || '') {
+  const list = $('#atlas-node-list');
+  if (!list || (!state.atlasIndexOpen && !query.trim())) return;
+  const nodes = atlasVisibleNodes(query);
+  const suffix = query.trim() ? ` matching “${query.trim()}”` : '';
+  setText('#atlas-index-summary', `${nodes.length} ${nodes.length === 1 ? 'note' : 'notes'}${suffix}`);
+  list.replaceChildren();
+  if (!nodes.length) {
+    list.append(emptyMini('No thoughts matched those filters.'));
+    return;
+  }
+  for (const node of nodes) {
+    const item = create('div');
+    item.setAttribute('role', 'listitem');
+    const button = create('button', `atlas-node-button${state.selectedAtlasNode === node.id ? ' active' : ''}`);
+    button.type = 'button';
+    button.dataset.atlasNode = node.id;
+    const dot = create('i');
+    dot.setAttribute('aria-hidden', 'true');
+    dot.style.setProperty('--node-color', node.color || 'var(--lilac)');
+    const copy = create('span');
+    copy.append(create('strong', '', node.title), create('small', '', `${node.kindLabel} · ${node.regionLabel}`));
+    button.append(dot, copy, create('em', '', `${node.degree}×`));
+    button.addEventListener('click', () => selectAtlasNode(node.id));
+    item.append(button);
+    list.append(item);
+  }
+}
+
+function setAtlasIndex(open, { focus = true } = {}) {
+  state.atlasIndexOpen = Boolean(open);
+  const drawer = $('#atlas-index');
+  const toggle = $('#atlas-list-toggle');
+  drawer.hidden = !state.atlasIndexOpen;
+  toggle.setAttribute('aria-expanded', state.atlasIndexOpen ? 'true' : 'false');
+  if (state.atlasIndexOpen) {
+    renderAtlasIndex();
+    if (focus) $('#atlas-index-close').focus({ preventScroll: true });
+  } else if (focus) {
+    toggle.focus({ preventScroll: true });
+  }
+}
+
+function selectAtlasNode(id, { fromCanvas = false } = {}) {
+  const node = state.atlas?.nodes.find((item) => item.id === id);
+  if (!node) return;
+  state.selectedAtlasNode = id;
+  if (!fromCanvas) state.atlasRenderer?.selectNode(id);
+  $('#atlas-inspector-empty').hidden = true;
+  $('#atlas-inspector-content').hidden = false;
+  setText('#atlas-node-kind', node.kindLabel);
+  setText('#atlas-node-region', node.regionLabel);
+  setText('#atlas-node-title', node.title);
+  setText('#atlas-node-summary', node.summary || 'A living note in Claudia’s vault.');
+  setText('#atlas-node-degree', formatNumber(node.degree));
+  setText('#atlas-node-words', formatNumber(node.wordCount));
+  setText('#atlas-node-source', String(node.classificationSource || 'inference').replace(/([a-z])([A-Z])/g, '$1 $2'));
+  setText('#atlas-node-path', node.path);
+  const memoryDocument = state.brain?.documents.find((document) => document.path === node.path);
+  const openButton = $('#atlas-open-memory');
+  openButton.hidden = !memoryDocument;
+  if (memoryDocument) openButton.dataset.documentId = memoryDocument.id;
+  else delete openButton.dataset.documentId;
+  $$('.atlas-node-button').forEach((button) => button.classList.toggle('active', button.dataset.atlasNode === id));
+  const canvas = $('#atlas-canvas');
+  canvas?.setAttribute('aria-label', `Interactive Brain Atlas. Selected ${node.title}, ${node.kindLabel}, ${node.degree} connections.`);
+  if (matchMedia('(max-width: 620px)').matches && state.atlasIndexOpen) setAtlasIndex(false, { focus: false });
+}
+
+function renderAtlas() {
+  const atlas = state.atlas;
+  if (!atlas) return;
+  const stats = atlas.stats || {};
+  setText('#atlas-node-total', formatNumber(stats.nodes ?? atlas.nodes?.length));
+  setText('#atlas-edge-total', formatNumber(stats.edges ?? atlas.edges?.length));
+  setText('#atlas-hub-total', formatNumber(stats.hubs));
+  setText('#atlas-connected-total', formatNumber(stats.connected));
+  setText('#atlas-unlinked-total', formatNumber(stats.unlinked));
+  const density = Number(stats.density) || 0;
+  setText('#atlas-density', `${(density <= 1 ? density * 100 : density).toFixed(1)}%`);
+  setText('#atlas-updated', `${formatNumber(stats.nodes ?? atlas.nodes?.length)} notes · updated ${formatRelative(atlas.generatedAt)}`);
+
+  for (const region of atlas.regions || []) {
+    if (!state.atlasRegions.has(region.id)) state.atlasRegions.set(region.id, true);
+    setText(`#atlas-region-${region.id}`, formatNumber(region.count ?? stats.regionCounts?.[region.id]));
+    const button = $(`[data-atlas-region="${region.id}"]`);
+    button?.setAttribute('aria-pressed', atlasRegionEnabled(region.id) ? 'true' : 'false');
+  }
+
+  const renderer = ensureAtlasRenderer();
+  if (renderer) {
+    if (state.atlasRendererData !== atlas) {
+      renderer.setData(atlas);
+      state.atlasRendererData = atlas;
+    }
+    renderer.setSearch($('#atlas-search')?.value || '');
+    renderer.setActive(state.view === 'atlas');
+  }
+  $('#atlas-loading').hidden = true;
+  renderAtlasIndex();
+  if (state.selectedAtlasNode && atlas.nodes.some((node) => node.id === state.selectedAtlasNode)) {
+    selectAtlasNode(state.selectedAtlasNode);
+  }
+}
+
+async function loadAtlas({ announce = false } = {}) {
+  if (state.atlasLoading) {
+    state.atlasReloadQueued = true;
+    return;
+  }
+  state.atlasLoading = true;
+  state.atlasReloadQueued = false;
+  const requestedRevision = state.atlasRevision;
+  const loading = $('#atlas-loading');
+  loading.hidden = false;
+  setText($('strong', loading), 'Mapping the cortex');
+  setText($('small', loading), 'Resolving notes and neural pathways…');
+  try {
+    state.atlas = await fetchJson('/api/atlas');
+    state.atlasDirty = state.atlasRevision !== requestedRevision;
+    renderAtlas();
+    if (announce) toast('Brain Atlas rebuilt from the live vault.');
+  } catch (error) {
+    console.error(error);
+    const title = $('strong', loading);
+    const detail = $('small', loading);
+    if (title) title.textContent = 'Atlas signal lost';
+    if (detail) detail.textContent = 'The vault map could not be rebuilt. Refresh to try again.';
+  } finally {
+    state.atlasLoading = false;
+    if ((state.atlasReloadQueued || state.atlasRevision !== requestedRevision) && state.view === 'atlas') {
+      queueMicrotask(() => loadAtlas());
+    }
+  }
+}
+
 function renderProjects() {
   const projects = state.projects?.projects || [];
   setText('#project-total', projects.length);
@@ -395,6 +571,7 @@ function renderDreams() {
 function renderAll() {
   renderDashboard();
   renderBrain();
+  renderAtlas();
   renderProjects();
   renderDreams();
 }
@@ -436,7 +613,7 @@ async function loadAll({ announce = false } = {}) {
 }
 
 function navigate(view, { focus = true } = {}) {
-  const valid = ['overview', 'memory', 'projects', 'dreams'];
+  const valid = ['overview', 'memory', 'atlas', 'projects', 'dreams', 'settings'];
   if (!valid.includes(view)) view = 'overview';
   state.view = view;
   document.body.dataset.view = view;
@@ -452,6 +629,8 @@ function navigate(view, { focus = true } = {}) {
     else item.removeAttribute('aria-current');
   });
   setText('#current-view-label', view[0].toUpperCase() + view.slice(1));
+  state.atlasRenderer?.setActive(view === 'atlas');
+  if (view === 'atlas' && (!state.atlas || state.atlasDirty)) loadAtlas();
   if (location.hash !== `#${view}`) history.pushState(null, '', `#${view}`);
   window.scrollTo({ top: 0, behavior: 'auto' });
   if (focus) {
@@ -465,8 +644,10 @@ function paletteItems(query = '') {
   const views = [
     { icon: '⌂', title: 'Overview', detail: 'Host vitals, services, memory, and network', kind: 'View', action: () => navigate('overview') },
     { icon: '∞', title: 'Memory', detail: 'Search long-term and daily memory', kind: 'View', action: () => navigate('memory') },
+    { icon: '◉', title: 'Brain Atlas', detail: 'Explore the living anatomical map of the vault', kind: 'View', action: () => navigate('atlas') },
     { icon: '◇', title: 'Projects', detail: 'Active work, decisions, and open threads', kind: 'View', action: () => navigate('projects') },
     { icon: '◐', title: 'Dreams', detail: 'Nightly synthesis and dream journal', kind: 'View', action: () => navigate('dreams') },
+    { icon: '⚙', title: 'Settings', detail: 'Security and dashboard password', kind: 'View', action: () => navigate('settings') },
   ];
   const documents = (state.brain?.documents || []).map((doc) => ({
     icon: doc.type === 'long-term-memory' ? '∞' : '•', title: doc.title, detail: textExcerpt(doc.raw, 90), kind: 'Memory',
@@ -475,7 +656,11 @@ function paletteItems(query = '') {
   const projects = (state.projects?.projects || []).map((project) => ({
     icon: '◇', title: project.name, detail: project.summary, kind: 'Project', action: () => { navigate('projects'); selectProject(project.id); },
   }));
-  const all = [...views, ...documents, ...projects];
+  const atlasNodes = (state.atlas?.nodes || []).map((node) => ({
+    icon: node.hub ? '✦' : '·', title: node.title, detail: `${node.kindLabel} · ${node.regionLabel} · ${node.degree} links`, kind: 'Atlas',
+    action: () => { navigate('atlas'); selectAtlasNode(node.id); },
+  }));
+  const all = [...views, ...documents, ...projects, ...atlasNodes];
   if (!normalized) return all.slice(0, 10);
   return all.filter((item) => `${item.title} ${item.detail} ${item.kind}`.toLowerCase().includes(normalized)).slice(0, 14);
 }
@@ -546,13 +731,69 @@ function setLive(enabled) {
   toast(enabled ? 'Automatic refresh resumed.' : 'Automatic refresh paused.');
 }
 
+function updatePasswordStrength() {
+  const nextSecret = $('#new-password').value;
+  let score = 0;
+  if (nextSecret.length >= 20) score += 1;
+  if (nextSecret.length >= 28) score += 1;
+  if (/[a-z]/.test(nextSecret) && /[A-Z]/.test(nextSecret)) score += 1;
+  if (/\d/.test(nextSecret) && /[^\w\s]/.test(nextSecret)) score += 1;
+  const labels = ['waiting for input', 'fair', 'good', 'strong', 'excellent'];
+  $('#password-strength').style.width = `${score * 25}%`;
+  $('#password-strength').dataset.score = String(score);
+  setText('#password-strength-label', `Strength: ${labels[score]}`);
+}
+
+async function changePassword(event) {
+  event.preventDefault();
+  const currentSecret = $('#current-password').value;
+  const nextSecret = $('#new-password').value;
+  const confirmation = $('#confirm-password').value;
+  const status = $('#password-status');
+  const submit = $('#password-submit');
+  if (nextSecret !== confirmation) {
+    status.textContent = 'The new passwords do not match.';
+    $('#confirm-password').focus();
+    return;
+  }
+  status.textContent = 'Encrypting and rotating…';
+  submit.disabled = true;
+  try {
+    const payload = Object.fromEntries([
+      ['currentPassword', currentSecret],
+      ['newPassword', nextSecret],
+      ['confirmPassword', confirmation],
+    ]);
+    const response = await fetch('/api/settings/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Claudia-Settings': 'password-change' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Password rotation failed.');
+    event.currentTarget.reset();
+    updatePasswordStrength();
+    status.textContent = 'Password updated. Reconnecting—use the new password when prompted.';
+    toast('Password rotated. Reconnect with the new credential.');
+    setTimeout(() => location.reload(), 1800);
+  } catch (error) {
+    status.textContent = error.message;
+    submit.disabled = false;
+  }
+}
+
 function connectEvents() {
   const source = new EventSource('/api/events');
   source.addEventListener('ready', () => {
     if (state.live) setConnection('live', 'Live connection', state.dashboard?.host?.hostname || 'Local telemetry');
   });
   source.addEventListener('memory', () => {
-    if (state.live) loadAll();
+    state.atlasDirty = true;
+    state.atlasRevision += 1;
+    if (state.live) {
+      loadAll();
+      if (state.view === 'atlas') loadAtlas();
+    }
   });
   source.onerror = () => {
     if (state.live) setConnection('offline', 'Reconnecting', 'Live updates interrupted');
@@ -568,9 +809,51 @@ function bindEvents() {
   $('#refresh-button').addEventListener('click', () => loadAll({ announce: true }));
   $('#service-refresh').addEventListener('click', () => loadAll({ announce: true }));
   $('#live-toggle').addEventListener('click', () => setLive(!state.live));
+  $('#password-form').addEventListener('submit', changePassword);
+  $('#new-password').addEventListener('input', updatePasswordStrength);
+  $('#show-passwords').addEventListener('change', (event) => {
+    const type = event.currentTarget.checked ? 'text' : 'password';
+    ['#current-password', '#new-password', '#confirm-password'].forEach((selector) => { $(selector).type = type; });
+  });
   $('#memory-search').addEventListener('input', (event) => renderDocuments(event.target.value));
   $('#command-trigger').addEventListener('click', (event) => openPalette(event.currentTarget));
-  $('#mobile-command').addEventListener('click', (event) => openPalette(event.currentTarget));
+  $('#mobile-command')?.addEventListener('click', (event) => openPalette(event.currentTarget));
+  $('#atlas-search').addEventListener('input', (event) => {
+    const query = event.target.value;
+    state.atlasRenderer?.setSearch(query);
+    if (query.trim() && !state.atlasIndexOpen) setAtlasIndex(true, { focus: false });
+    renderAtlasIndex(query);
+  });
+  $('#atlas-list-toggle').addEventListener('click', () => setAtlasIndex(!state.atlasIndexOpen));
+  $('#atlas-index-close').addEventListener('click', () => setAtlasIndex(false));
+  $('#atlas-labels').addEventListener('click', (event) => {
+    state.atlasLabels = !state.atlasLabels;
+    event.currentTarget.setAttribute('aria-pressed', state.atlasLabels ? 'true' : 'false');
+    state.atlasRenderer?.setLabels(state.atlasLabels);
+  });
+  $('#atlas-motion').addEventListener('click', (event) => {
+    state.atlasMotion = !state.atlasMotion;
+    event.currentTarget.setAttribute('aria-pressed', state.atlasMotion ? 'true' : 'false');
+    state.atlasRenderer?.setMotion(state.atlasMotion);
+    toast(state.atlasMotion ? 'Atlas motion resumed.' : 'Atlas motion paused.');
+  });
+  $('#atlas-reset').addEventListener('click', () => state.atlasRenderer?.reset());
+  $('#atlas-zoom-in').addEventListener('click', () => state.atlasRenderer?.zoomBy(.16));
+  $('#atlas-zoom-out').addEventListener('click', () => state.atlasRenderer?.zoomBy(-.16));
+  $$('[data-atlas-region]').forEach((button) => button.addEventListener('click', () => {
+    const region = button.dataset.atlasRegion;
+    const enabled = !atlasRegionEnabled(region);
+    state.atlasRegions.set(region, enabled);
+    button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    state.atlasRenderer?.setRegion(region, enabled);
+    renderAtlasIndex();
+  }));
+  $('#atlas-open-memory').addEventListener('click', (event) => {
+    const documentId = event.currentTarget.dataset.documentId;
+    if (!documentId) return;
+    navigate('memory');
+    selectDocument(documentId);
+  });
   $('#command-close').addEventListener('click', closePalette);
   $('#command-input').addEventListener('input', (event) => { state.paletteIndex = 0; renderPalette(event.target.value); });
   $('#command-input').addEventListener('keydown', (event) => {
@@ -587,6 +870,7 @@ function bindEvents() {
   });
   window.addEventListener('hashchange', () => navigate(location.hash.slice(1) || 'overview', { focus: false }));
   document.addEventListener('visibilitychange', () => {
+    state.atlasRenderer?.setActive(state.view === 'atlas' && !document.hidden);
     if (!document.hidden && state.live && state.lastUpdated && Date.now() - state.lastUpdated.getTime() > 30_000) loadAll();
   });
 }
@@ -595,6 +879,7 @@ async function init() {
   updateClock();
   setInterval(updateClock, 30_000);
   bindEvents();
+  $('#atlas-motion').setAttribute('aria-pressed', state.atlasMotion ? 'true' : 'false');
   navigate(location.hash.slice(1) || 'overview', { focus: false });
   await loadAll();
   connectEvents();

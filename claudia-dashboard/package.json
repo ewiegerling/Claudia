@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
-    "test": "node --test test/server.test.mjs",
+    "test": "node --test --test-concurrency=1 test/server.test.mjs test/atlas.test.mjs",
     "test:browser": "node --test test/browser.test.mjs",
     "test:cross-browser": "node --test test/cross-browser.test.mjs",
     "test:a11y": "node --test test/accessibility.test.mjs",
