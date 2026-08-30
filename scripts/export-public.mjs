@@ -12,6 +12,12 @@ const execFileAsync = promisify(execFile);
 const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const mirrorsRoot = path.resolve(os.homedir(), '.openclaw', 'public-mirrors');
 const destination = path.resolve(process.argv[2] || path.join(mirrorsRoot, 'Claudia'));
+const guardDirectory = path.resolve(
+  process.env.CLAUDIA_PUBLICATION_GUARD_DIR
+    || path.join(os.homedir(), '.openclaw', 'publication-guard', 'Claudia'),
+);
+const privateBlocklistPath = path.join(guardDirectory, 'blocklist.txt');
+const privateReplacementsPath = path.join(guardDirectory, 'replacements.json');
 
 if (destination === source || !destination.startsWith(`${mirrorsRoot}${path.sep}`)) {
   throw new Error(`Refusing unsafe public-export destination: ${destination}`);
@@ -29,6 +35,7 @@ const safeSources = [
   'HEARTBEAT.md',
   'IDENTITY.md',
   'claudia-dashboard',
+  'skills/dual-repo-publisher',
   'skills/openclaw-brain-viewer',
   'templates',
   'scripts/audit-public.mjs',
@@ -37,10 +44,25 @@ const safeSources = [
 
 const staging = await mkdtemp(path.join(os.tmpdir(), 'claudia-public-export-'));
 try {
-  const privateReplacements = JSON.parse(await readFile(
-    path.join(source, 'scripts', 'private-publication-replacements.json'),
-    'utf8',
-  ).catch(() => '{}'));
+  const privateBlocklist = await readFile(privateBlocklistPath, 'utf8');
+  if (!privateBlocklist.trim()) {
+    throw new Error(`Refusing public export with an empty private-term blocklist: ${privateBlocklistPath}`);
+  }
+
+  const privateReplacements = JSON.parse(await readFile(privateReplacementsPath, 'utf8'));
+  if (
+    privateReplacements === null
+    || Array.isArray(privateReplacements)
+    || typeof privateReplacements !== 'object'
+    || Object.keys(privateReplacements).length === 0
+  ) {
+    throw new Error(`Refusing public export with invalid or empty replacements: ${privateReplacementsPath}`);
+  }
+  for (const [privateValue, publicValue] of Object.entries(privateReplacements)) {
+    if (!privateValue || typeof publicValue !== 'string') {
+      throw new Error(`Refusing public export with malformed replacements: ${privateReplacementsPath}`);
+    }
+  }
 
   for (const relative of safeSources) {
     const from = path.join(source, relative);
@@ -86,12 +108,13 @@ try {
   }
 
   await sanitizeTree(staging);
-  await execFileAsync(process.execPath, [
+  const auditArguments = [
     path.join(source, 'scripts', 'audit-public.mjs'),
     staging,
     '--blocklist',
-    path.join(source, 'scripts', 'private-publication-blocklist.txt'),
-  ]);
+    privateBlocklistPath,
+  ];
+  await execFileAsync(process.execPath, auditArguments);
 
   await mkdir(destination, { recursive: true });
   for (const entry of await readdir(destination, { withFileTypes: true })) {
