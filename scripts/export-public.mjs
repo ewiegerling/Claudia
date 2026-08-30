@@ -1,0 +1,108 @@
+#!/usr/bin/env node
+
+import { execFile } from 'node:child_process';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import process from 'node:process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+
+const execFileAsync = promisify(execFile);
+const source = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const mirrorsRoot = path.resolve(os.homedir(), '.openclaw', 'public-mirrors');
+const destination = path.resolve(process.argv[2] || path.join(mirrorsRoot, 'Claudia'));
+
+if (destination === source || !destination.startsWith(`${mirrorsRoot}${path.sep}`)) {
+  throw new Error(`Refusing unsafe public-export destination: ${destination}`);
+}
+
+const safeSources = [
+  '.obsidian/app.json',
+  '.obsidian/appearance.json',
+  '.obsidian/community-plugins.json',
+  '.obsidian/core-plugins.json',
+  '.obsidian/daily-notes.json',
+  '.obsidian/graph.json',
+  '.obsidian/snippets/claudia-vault.css',
+  '.obsidian/templates.json',
+  'HEARTBEAT.md',
+  'IDENTITY.md',
+  'claudia-dashboard',
+  'skills/openclaw-brain-viewer',
+  'templates',
+  'scripts/audit-public.mjs',
+  'scripts/export-public.mjs',
+];
+
+const staging = await mkdtemp(path.join(os.tmpdir(), 'claudia-public-export-'));
+try {
+  const privateReplacements = JSON.parse(await readFile(
+    path.join(source, 'scripts', 'private-publication-replacements.json'),
+    'utf8',
+  ).catch(() => '{}'));
+
+  for (const relative of safeSources) {
+    const from = path.join(source, relative);
+    const to = path.join(staging, relative);
+    await mkdir(path.dirname(to), { recursive: true });
+    await cp(from, to, {
+      recursive: true,
+      filter: (candidate) => !candidate.split(path.sep).includes('node_modules'),
+    });
+  }
+
+  await cp(path.join(source, 'public-edition'), staging, { recursive: true, force: true });
+
+  const replacements = [
+    [/\b192\.168(?:\.\d{1,3}){2}\b/g, '127.0.0.1'],
+    [/\b10(?:\.\d{1,3}){3}\b/g, '127.0.0.1'],
+    [/\b172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}\b/g, '127.0.0.1'],
+    [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.cache\/playwright-libs\/root/g, '/opt/playwright-libs'],
+    [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.cache\/playwright-libs\/fonts\.conf/g, '/opt/playwright-libs/fonts.conf'],
+    [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.openclaw\/workspace/g, '/opt/claudia-vault'],
+  ];
+
+  async function sanitizeTree(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await sanitizeTree(absolute);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const buffer = await readFile(absolute);
+      if (buffer.includes(0)) continue;
+      let text = buffer.toString('utf8');
+      for (const [pattern, replacement] of replacements) text = text.replace(pattern, replacement);
+      for (const [privateValue, publicValue] of Object.entries(privateReplacements)) {
+        const escaped = privateValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        text = text.replace(new RegExp(escaped, 'gi'), publicValue);
+      }
+      text = text.replace(/const BROWSER_ENV = \{[\s\S]*?\n\};/g, 'const BROWSER_ENV = process.env;');
+      text = text.replace(/const FIREFOX_ENV = \{[\s\S]*?\n\};/g, 'const FIREFOX_ENV = process.env;');
+      await writeFile(absolute, text);
+    }
+  }
+
+  await sanitizeTree(staging);
+  await execFileAsync(process.execPath, [
+    path.join(source, 'scripts', 'audit-public.mjs'),
+    staging,
+    '--blocklist',
+    path.join(source, 'scripts', 'private-publication-blocklist.txt'),
+  ]);
+
+  await mkdir(destination, { recursive: true });
+  for (const entry of await readdir(destination, { withFileTypes: true })) {
+    if (entry.name === '.git') continue;
+    await rm(path.join(destination, entry.name), { recursive: true, force: true });
+  }
+  for (const entry of await readdir(staging)) {
+    await cp(path.join(staging, entry), path.join(destination, entry), { recursive: true, force: true });
+  }
+
+  console.log(`Sanitized public mirror exported to ${destination}`);
+} finally {
+  await rm(staging, { recursive: true, force: true });
+}

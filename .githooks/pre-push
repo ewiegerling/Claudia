@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+repo=$(git rev-parse --show-toplevel)
+blocklist=$(git config --get claudia.privateBlocklist || true)
+
+if [ -n "$blocklist" ]; then
+  node "$repo/scripts/audit-public.mjs" "$repo" --blocklist "$blocklist"
+else
+  node "$repo/scripts/audit-public.mjs" "$repo"
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks_bin=$(command -v gitleaks)
+elif [ -x "$HOME/.cache/gitleaks/8.30.1/gitleaks" ]; then
+  gitleaks_bin="$HOME/.cache/gitleaks/8.30.1/gitleaks"
+else
+  echo "Refusing push: Gitleaks is required for public-history scanning." >&2
+  exit 1
+fi
+
+"$gitleaks_bin" git --redact=100 --no-banner --log-level error "$repo"
+echo "Public pre-push privacy gates passed."

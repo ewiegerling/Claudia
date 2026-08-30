@@ -1,0 +1,60 @@
+:root {
+  --claudia-lilac: #a77bf3;
+  --claudia-magenta: #e879f9;
+  --claudia-ink: #120d18;
+}
+
+body {
+  --interactive-accent: var(--claudia-lilac);
+  --interactive-accent-hover: #bd9af7;
+  --text-accent: #bd9af7;
+  --text-accent-hover: #d5bcff;
+  --link-color: #bd9af7;
+  --link-color-hover: #e0ceff;
+}
+
+.theme-dark {
+  --background-primary: #120d18;
+  --background-primary-alt: #17101f;
+  --background-secondary: #0e0a13;
+  --background-secondary-alt: #130d1a;
+  --background-modifier-border: rgba(167, 123, 243, 0.2);
+  --background-modifier-hover: rgba(167, 123, 243, 0.09);
+  --background-modifier-active-hover: rgba(167, 123, 243, 0.15);
+  --titlebar-background: #0e0a13;
+  --titlebar-background-focused: #120d18;
+}
+
+.workspace-leaf-content[data-type="markdown"] .view-content {
+  background-image:
+    radial-gradient(circle at 12% 0%, rgba(167, 123, 243, 0.08), transparent 28rem),
+    radial-gradient(circle at 92% 100%, rgba(232, 121, 249, 0.05), transparent 32rem);
+}
+
+.markdown-rendered h1,
+.markdown-rendered h2,
+.markdown-rendered h3 {
+  letter-spacing: -0.025em;
+}
+
+.markdown-rendered h1 {
+  background: linear-gradient(110deg, #f5efff, #bd9af7 58%, #e879f9);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.markdown-rendered blockquote {
+  border-inline-start-color: var(--claudia-lilac);
+  background: rgba(167, 123, 243, 0.06);
+  border-radius: 0 0.75rem 0.75rem 0;
+}
+
+.markdown-rendered code {
+  color: #ddc9ff;
+}
+
+.nav-file-title[data-path="Claudia.md"] {
+  color: #d7c2ff;
+  font-weight: 700;
+}

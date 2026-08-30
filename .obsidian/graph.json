@@ -1,0 +1,26 @@
+{
+  "collapse-color-groups": false,
+  "collapse-display": false,
+  "collapse-filter": false,
+  "collapse-forces": false,
+  "collapse-search": false,
+  "colorGroups": [
+    {
+      "color": { "a": 1, "rgb": 10958991 },
+      "query": "tag:#memory"
+    },
+    {
+      "color": { "a": 1, "rgb": 16751001 },
+      "query": "tag:#dream"
+    },
+    {
+      "color": { "a": 1, "rgb": 5950719 },
+      "query": "tag:#project"
+    }
+  ],
+  "hideUnresolved": false,
+  "search": "-path:claudia-dashboard/node_modules",
+  "showAttachments": false,
+  "showOrphans": true,
+  "showTags": true
+}

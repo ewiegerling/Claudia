@@ -1,0 +1,40 @@
+name: Public safety
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Audit public content
+        run: node scripts/audit-public.mjs .
+
+      - name: Install dashboard dependencies
+        working-directory: claudia-dashboard
+        run: npm ci
+
+      - name: Audit dashboard dependencies
+        working-directory: claudia-dashboard
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Run API and security tests
+        working-directory: claudia-dashboard
+        run: npm test

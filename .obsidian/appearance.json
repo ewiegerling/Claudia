@@ -1,0 +1,10 @@
+{
+  "accentColor": "#a77bf3",
+  "baseFontSize": 16,
+  "enabledCssSnippets": [
+    "claudia-vault"
+  ],
+  "interfaceFontFamily": "Inter, ui-sans-serif, system-ui",
+  "monospaceFontFamily": "JetBrains Mono, ui-monospace, monospace",
+  "textFontFamily": "Inter, ui-sans-serif, system-ui"
+}

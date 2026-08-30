@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0a10">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Claudia's private operations and memory dashboard.">
+  <title>Claudia Dashboard</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/dashboard.css?v=1">
+  <script src="/dashboard.js?v=1" defer></script>
+</head>
+<body data-view="overview">
+  <a class="skip-link" href="#main-content">Skip to dashboard</a>
+
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary">
+      <a class="brand" href="#overview" data-nav="overview" aria-label="Claudia dashboard home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" role="img"><path d="M24 5 39 13.5v17L24 39 9 30.5v-17L24 5Z"/><path d="m16 25 5 5 11-13"/></svg>
+        </span>
+        <span><strong>Claudia</strong><small>Personal intelligence</small></span>
+      </a>
+
+      <nav class="side-nav" aria-label="Dashboard sections">
+        <button class="nav-item active" type="button" data-nav="overview" aria-current="page">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v10h-6zM4 14h6v6H4zM14 18h6v2h-6z"/></svg>
+          <span>Overview</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="memory">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 15h11M9 8h6"/></svg>
+          <span>Memory</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="projects">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4V7Z"/><path d="M8 4h5l2 3"/></svg>
+          <span>Projects</span>
+        </button>
+        <button class="nav-item" type="button" data-nav="dreams">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M19 15.5A8 8 0 0 1 8.5 5a8 8 0 1 0 10.5 10.5Z"/><path d="m16 5 .5 1.5L18 7l-1.5.5L16 9l-.5-1.5L14 7l1.5-.5L16 5Z"/></svg>
+          <span>Dreams</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="connection-card">
+          <span class="live-dot" aria-hidden="true"></span>
+          <span><strong id="sidebar-connection">Connecting</strong><small id="sidebar-host">Local telemetry</small></span>
+        </div>
+        <button class="profile-chip" type="button" data-nav="memory" aria-label="Open Claudia's identity and memory">
+          <span class="profile-avatar" aria-hidden="true">🦂</span>
+          <span><strong>Claudia</strong><small id="sidebar-vibe">Personal AI</small></span>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button class="mobile-brand" type="button" data-nav="overview" aria-label="Claudia, go to overview">
+          <span class="brand-mark small" aria-hidden="true">C</span><strong>Claudia</strong>
+        </button>
+        <div class="breadcrumbs" aria-label="Current location">
+          <span>Dashboard</span><span aria-hidden="true">/</span><strong id="current-view-label">Overview</strong>
+        </div>
+        <div class="topbar-actions">
+          <button class="command-trigger" id="command-trigger" type="button" aria-haspopup="dialog">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+            <span>Search anything</span><kbd>⌘ K</kbd>
+          </button>
+          <div class="clock" aria-label="Current local time"><strong id="clock-time">--:--</strong><small id="clock-date">Loading</small></div>
+          <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh dashboard data">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg>
+          </button>
+          <button class="icon-button" id="live-toggle" type="button" aria-label="Pause automatic refresh" aria-pressed="true">
+            <svg class="pause-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <main id="main-content" tabindex="-1">
+        <section class="view active" id="view-overview" data-view-panel="overview" aria-labelledby="overview-title">
+          <div class="hero-row">
+            <div>
+              <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span><span id="hero-kicker">Live system intelligence</span></p>
+              <h1 id="overview-title"><span id="greeting">Hello</span>, operator.</h1>
+              <p class="hero-copy" id="hero-copy">Pulling the threads together. One elegant second.</p>
+            </div>
+            <div class="hero-status" id="hero-status" role="status" aria-live="polite">
+              <span class="status-orbit" aria-hidden="true"><i></i></span>
+              <span><small>System state</small><strong id="overall-status">Connecting</strong></span>
+            </div>
+          </div>
+
+          <div class="metrics-strip" aria-label="Key metrics">
+            <article class="metric-tile">
+              <div class="metric-icon lilac"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 3v3M16 3v3M8 18v3M16 18v3M3 8h3M18 8h3M3 16h3M18 16h3"/><rect x="6" y="6" width="12" height="12" rx="3"/></svg></div>
+              <div><span>CPU load</span><strong id="cpu-value">—</strong><small id="cpu-detail">Sampling host</small></div>
+              <svg class="sparkline" id="cpu-chart" viewBox="0 0 110 38" preserveAspectRatio="none" aria-hidden="true"><path class="spark-fill" d="M0 34 L110 34 Z"/><path class="spark-stroke" d="M0 34 L110 34"/></svg>
+            </article>
+            <article class="metric-tile">
+              <div class="metric-icon mint"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 7h14v10H5zM8 10h8M8 14h5"/><path d="M8 4v3M16 4v3M8 17v3M16 17v3"/></svg></div>
+              <div><span>Memory</span><strong id="memory-value">—</strong><small id="memory-detail">Reading allocation</small></div>
+              <svg class="sparkline mint-line" id="memory-chart" viewBox="0 0 110 38" preserveAspectRatio="none" aria-hidden="true"><path class="spark-fill" d="M0 34 L110 34 Z"/><path class="spark-stroke" d="M0 34 L110 34"/></svg>
+            </article>
+            <article class="metric-tile">
+              <div class="metric-icon amber"><svg aria-hidden="true" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></div>
+              <div><span>Storage</span><strong id="storage-value">—</strong><small id="storage-detail">Measuring volume</small></div>
+              <div class="mini-ring" id="storage-ring" aria-hidden="true"><span></span></div>
+            </article>
+            <article class="metric-tile">
+              <div class="metric-icon blue"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 4v16M7 9l5-5 5 5M7 15l5 5 5-5"/></svg></div>
+              <div><span>Network</span><strong id="network-value">—</strong><small id="network-detail">Total transferred</small></div>
+              <span class="trend-badge" id="network-badge">LIVE</span>
+            </article>
+          </div>
+
+          <div class="bento-grid">
+            <article class="panel pulse-panel">
+              <div class="panel-head">
+                <div><p class="section-kicker">Resource pulse</p><h2>Host vitals</h2></div>
+                <span class="live-chip"><span class="live-dot"></span>Live</span>
+              </div>
+              <div class="pulse-body">
+                <div class="pulse-visual" aria-hidden="true">
+                  <div class="orbital orbital-one"></div><div class="orbital orbital-two"></div>
+                  <div class="pulse-core"><span id="pulse-score">—</span><small>health</small></div>
+                </div>
+                <div class="resource-list" id="resource-list">
+                  <div class="resource-row"><div><span>CPU</span><strong id="cpu-row-value">—</strong></div><div class="progress"><i id="cpu-progress"></i></div></div>
+                  <div class="resource-row"><div><span>Memory</span><strong id="memory-row-value">—</strong></div><div class="progress mint"><i id="memory-progress"></i></div></div>
+                  <div class="resource-row"><div><span>Storage</span><strong id="storage-row-value">—</strong></div><div class="progress amber"><i id="storage-progress"></i></div></div>
+                </div>
+              </div>
+              <footer class="panel-foot"><span id="host-summary">Waiting for host details</span><span id="host-uptime">Uptime —</span></footer>
+            </article>
+
+            <article class="panel service-panel">
+              <div class="panel-head">
+                <div><p class="section-kicker">Infrastructure</p><h2>Services</h2></div>
+                <button class="text-button" type="button" id="service-refresh">Check now</button>
+              </div>
+              <div class="service-list" id="service-list" aria-live="polite">
+                <div class="skeleton service-skeleton"></div><div class="skeleton service-skeleton"></div><div class="skeleton service-skeleton"></div>
+              </div>
+            </article>
+
+            <article class="panel memory-panel">
+              <div class="panel-head">
+                <div><p class="section-kicker">Long-term context</p><h2>Memory</h2></div>
+                <button class="round-arrow" type="button" data-nav="memory" aria-label="Open memory explorer">↗</button>
+              </div>
+              <div class="memory-hero">
+                <span class="memory-glyph" aria-hidden="true">✦</span>
+                <div><strong id="memory-documents">—</strong><span>documents indexed</span></div>
+              </div>
+              <div class="memory-stats">
+                <div><span>Words</span><strong id="memory-words">—</strong></div>
+                <div><span>Daily notes</span><strong id="memory-dailies">—</strong></div>
+                <div><span>Last signal</span><strong id="memory-updated">—</strong></div>
+              </div>
+            </article>
+
+            <article class="panel activity-panel">
+              <div class="panel-head">
+                <div><p class="section-kicker">Recent signal</p><h2>Activity</h2></div>
+                <span class="quiet-label" id="activity-count">Today</span>
+              </div>
+              <ol class="activity-list" id="activity-list">
+                <li><span class="timeline-dot"></span><div><strong>Synchronizing memory</strong><small>Waiting for the latest context</small></div></li>
+              </ol>
+            </article>
+
+            <article class="panel project-peek-panel">
+              <div class="panel-head">
+                <div><p class="section-kicker">In motion</p><h2>Projects</h2></div>
+                <button class="round-arrow" type="button" data-nav="projects" aria-label="Open projects">↗</button>
+              </div>
+              <div id="project-peek" class="project-peek"><div class="skeleton block-skeleton"></div></div>
+            </article>
+
+            <article class="panel network-panel">
+              <div class="panel-head">
+                <div><p class="section-kicker">Private route</p><h2>Network</h2></div>
+                <span class="secure-chip"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3"/><rect x="5" y="11" width="14" height="9" rx="2"/></svg>Read-only</span>
+              </div>
+              <div class="network-route" aria-label="Dashboard network route">
+                <div><span class="route-node edge">E</span><small>operator</small></div><i></i><div><span class="route-node proxy">N</span><small>TLS proxy</small></div><i></i><div><span class="route-node host">C</span><small>Claudia</small></div>
+              </div>
+              <dl class="network-details"><div><dt>Endpoint</dt><dd id="network-host">dashboard.example.com</dd></div><div><dt>Upstream</dt><dd id="network-upstream">127.0.0.1:4317</dd></div></dl>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-memory" data-view-panel="memory" aria-labelledby="memory-title" hidden>
+          <div class="section-hero"><div><p class="eyebrow">Living context</p><h1 id="memory-title">Memory, without the mausoleum.</h1><p>Search the things worth keeping, then read them in their original context.</p></div><div class="hero-number"><strong id="memory-total-words">—</strong><span>words remembered</span></div></div>
+          <div class="memory-workspace panel">
+            <aside class="document-rail" aria-label="Memory documents">
+              <label class="search-field"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg><span class="sr-only">Search memory</span><input id="memory-search" type="search" placeholder="Search memory…" autocomplete="off"></label>
+              <div class="search-summary" id="memory-search-summary" aria-live="polite">Loading documents…</div>
+              <div class="document-list" id="document-list"></div>
+            </aside>
+            <article class="document-viewer" id="document-viewer" aria-live="polite" aria-label="Selected memory document" tabindex="0">
+              <div class="empty-state"><span>✦</span><h2>Choose a memory</h2><p>The useful parts of the past are standing by.</p></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-projects" data-view-panel="projects" aria-labelledby="projects-title" hidden>
+          <div class="section-hero"><div><p class="eyebrow">Active work</p><h1 id="projects-title">Projects with a pulse.</h1><p>Current direction, decisions, and loose threads—derived from memory, never duplicated.</p></div><div class="hero-number"><strong id="project-total">—</strong><span>active projects</span></div></div>
+          <div class="projects-layout">
+            <div class="project-grid" id="project-grid" aria-label="Projects"></div>
+            <article class="panel project-detail" id="project-detail" aria-label="Selected project details" tabindex="0"><div class="empty-state"><span>⌁</span><h2>Select a project</h2><p>Pick a card to inspect its recent signals and decisions.</p></div></article>
+          </div>
+        </section>
+
+        <section class="view" id="view-dreams" data-view-panel="dreams" aria-labelledby="dreams-title" hidden>
+          <div class="section-hero dream-hero"><div><p class="eyebrow">Nightly synthesis</p><h1 id="dreams-title">Where memory gets weird.</h1><p>Claudia's dream journal: reflection, pattern-making, and the occasional beautifully useful hallucination.</p></div><div class="dream-state"><span class="moon" aria-hidden="true">◐</span><div><strong id="dream-state">Checking</strong><small id="dream-schedule">Nightly schedule</small></div></div></div>
+          <div class="dream-layout">
+            <aside class="panel dream-stats"><div><span>Journal entries</span><strong id="dream-entry-count">—</strong></div><div><span>Phase reports</span><strong id="dream-report-count">—</strong></div><div><span>Words dreamed</span><strong id="dream-word-count">—</strong></div><div><span>Last dream</span><strong id="dream-last">—</strong></div></aside>
+            <div class="dream-feed" id="dream-feed" aria-live="polite"><div class="panel dream-card skeleton block-skeleton"></div></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Dashboard sections">
+    <button class="active" type="button" data-nav="overview" aria-current="page"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v10h-6zM4 14h6v6H4zM14 18h6v2h-6z"/></svg><span>Home</span></button>
+    <button type="button" data-nav="memory"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3V4Z"/><path d="M8 15h11M9 8h6"/></svg><span>Memory</span></button>
+    <button class="mobile-command" type="button" id="mobile-command" aria-haspopup="dialog" aria-label="Search dashboard"><span><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg></span></button>
+    <button type="button" data-nav="projects"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h6l2 2h8v10H4V7Z"/></svg><span>Projects</span></button>
+    <button type="button" data-nav="dreams"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M19 15.5A8 8 0 0 1 8.5 5a8 8 0 1 0 10.5 10.5Z"/></svg><span>Dreams</span></button>
+  </nav>
+
+  <dialog class="command-palette" id="command-palette" aria-labelledby="command-title">
+    <div class="palette-shell">
+      <div class="palette-search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg><label class="sr-only" for="command-input" id="command-title">Search dashboard</label><input id="command-input" type="search" placeholder="Search views and memory…" autocomplete="off"><button id="command-close" type="button" aria-label="Close search">Esc</button></div>
+      <div class="palette-results" id="command-results" role="listbox" aria-label="Search results"></div>
+      <footer><span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span><span><kbd>↵</kbd> Open</span></footer>
+    </div>
+  </dialog>
+
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

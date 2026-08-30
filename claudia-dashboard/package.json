@@ -1,0 +1,25 @@
+{
+  "name": "claudia-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claudia Dashboard: a private, mobile-first operations and memory cockpit.",
+  "scripts": {
+    "dev": "node --watch server.mjs",
+    "start": "node server.mjs",
+    "test": "node --test test/server.test.mjs",
+    "test:browser": "node --test test/browser.test.mjs",
+    "test:cross-browser": "node --test test/cross-browser.test.mjs",
+    "test:a11y": "node --test test/accessibility.test.mjs",
+    "test:all": "npm test && npm run test:browser && npm run test:cross-browser && npm run test:a11y"
+  },
+  "dependencies": {
+    "marked": "18.0.11",
+    "sanitize-html": "2.17.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "lighthouse": "^13.4.1",
+    "playwright": "^1.62.1"
+  }
+}

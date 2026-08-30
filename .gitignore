@@ -1,0 +1,29 @@
+# Dependencies and generated output
+node_modules/
+dist/
+coverage/
+*.log
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# Obsidian local state and downloaded community-plugin code
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache/
+.obsidian/plugins/
+.trash/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*~
