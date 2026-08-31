@@ -44,6 +44,11 @@ test('Chromium desktop and mobile recovery journeys', async (t) => {
         await page.waitForFunction(() => document.querySelector('#readiness')?.textContent === 'NOMINAL');
         assert.equal(await page.locator('.service-card').count(), 5);
         assert.equal(await page.locator('.action-card').count(), 4);
+        assert.equal(await page.locator('.ambient-one').count(), 1);
+        assert.equal(await page.locator('.ambient-two').count(), 1);
+        await page.locator('.skip-link').focus();
+        await page.keyboard.press('Enter');
+        assert.equal(await page.evaluate(() => document.activeElement?.id), 'main');
         assert.equal(await page.locator('#vault-commit').textContent(), 'abc123def456');
         assert.equal(await page.locator('#backup-count').textContent(), '1');
         assert.equal(await page.locator('.backup-card').count(), 1);
@@ -52,12 +57,18 @@ test('Chromium desktop and mobile recovery journeys', async (t) => {
           const style = getComputedStyle(panel);
           const root = getComputedStyle(document.documentElement);
           return {
-            acid: root.getPropertyValue('--acid').trim(),
+            void: root.getPropertyValue('--void').trim(),
+            lilac: root.getPropertyValue('--lilac').trim(),
+            mint: root.getPropertyValue('--mint').trim(),
+            themeColor: document.querySelector('meta[name="theme-color"]')?.content,
             panelBackground: style.backgroundImage,
             panelBorder: style.borderColor,
           };
         });
-        assert.equal(themed.acid, '#caff4a');
+        assert.equal(themed.void, '#0b0a10');
+        assert.equal(themed.lilac, '#b9a7ff');
+        assert.equal(themed.mint, '#71efc3');
+        assert.equal(themed.themeColor, '#0b0a10');
         assert.match(themed.panelBackground, /linear-gradient/i);
         assert.notEqual(themed.panelBorder, 'rgba(0, 0, 0, 0)');
         assert.equal(await page.locator('#new-password').getAttribute('minlength'), '12');

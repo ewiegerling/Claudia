@@ -399,8 +399,12 @@ test('successful and failed actions write redacted local audit evidence', async 
 
 test('source contains no shell execution or user-controlled process arguments', async () => {
   const source = await readFile(new URL('../server.mjs', import.meta.url), 'utf8');
+  const markup = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('../public/recovery.css', import.meta.url), 'utf8');
   assert.equal(/\bexec\s*\(/.test(source), false);
   assert.equal(/shell\s*:\s*true/.test(source), false);
   assert.match(source, /Object\.hasOwn\(RECOVERY_ACTIONS, body\.action\)/);
   assert.match(source, /execFileAsync\('\/usr\/bin\/systemctl'/);
+  assert.match(markup, /<main id="main" tabindex="-1">/);
+  assert.match(styles, /@media \(forced-colors: active\)/);
 });

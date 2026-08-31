@@ -4,7 +4,7 @@
   "description": "Independent break-glass recovery controls for Claudia.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#080a0f",
-  "theme_color": "#080a0f",
+  "background_color": "#0b0a10",
+  "theme_color": "#0b0a10",
   "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

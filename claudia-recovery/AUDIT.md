@@ -26,9 +26,9 @@ The independent recovery portal passed its release gates. It is enabled, authent
 - Chromium passed at 1440×900, 390×844, and the 320×780 reflow floor with no horizontal overflow, duplicate IDs, missing controls, or sub-44px mobile targets.
 - Firefox passed desktop and mobile rendering at 1280×800 and 390×844.
 - axe-core found zero WCAG 2.2 AA violations at 1440px, 390px, and 320px, including the open confirmation dialog.
-- Reduced-motion, keyboard focus, skip navigation, native dialog semantics, touch controls, and mobile safe reflow were exercised.
-- The direct LAN deployment and public TLS hostname each passed 33 authenticated browser assertions across desktop, mobile, and narrow-mobile viewports with zero unexpected browser errors.
-- The backup panel retains the console's dark glass, acid-green, orange-warning visual system at every tested width; a simulated backup-storage failure left core recovery status online and clearly identified only the snapshot subsystem as unavailable.
+- Reduced-motion, keyboard focus, skip navigation into the main recovery region, native dialog semantics, forced-colors fallbacks, touch controls, and mobile safe reflow were exercised.
+- The direct LAN deployment and public TLS hostname each passed 45 authenticated browser assertions across desktop, mobile, and narrow-mobile viewports with zero unexpected browser errors.
+- The recovery console now uses the dashboard's midnight-plum, lilac, mint, amber, and danger visual system: matching glass top bar, ambient glows, surfaces, panels, controls, focus treatment, and app theme color. A simulated backup-storage failure left core recovery status online and clearly identified only the snapshot subsystem as unavailable.
 
 ## Production and host controls
 
