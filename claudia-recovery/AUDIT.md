@@ -1,6 +1,6 @@
 # Claudia Recovery Audit
 
-Audit date: 2026-08-30 (America/Chicago)
+Audit date: 2026-08-31 (America/Chicago)
 
 ## Result
 
@@ -8,10 +8,13 @@ The independent recovery portal passed its release gates. It is enabled, authent
 
 ## Application and API
 
-- 12/12 Node unit, API, and security tests passed.
+- 16/16 Node unit, API, and security tests passed.
 - Anonymous access is limited to the minimal `/healthz` response; pages, status, diagnostics, and actions return `401` without the independent recovery credential.
 - Authentication failures are throttled and return `429` after the configured limit.
 - State changes require an exact trusted origin, a bounded JSON body, and one hardcoded action name.
+- Password rotation requires current-secret verification, exact confirmation, trusted same-origin intent, and a 12–128 character replacement; malformed, reused, mismatched, padded, and 11-character replacements are rejected.
+- Local snapshots require authenticated same-origin intent and a fixed operation body. The server owns every path and identifier, caps storage at 20 archives, requires 1 GiB free, excludes Git objects and dependency/build caches, and rejects traversal-like identifiers.
+- Snapshot integration tests created a real zstd archive and atomic SHA-256 manifest, verified it, deliberately modified the archive, and confirmed that the integrity endpoint rejected the tampered result without exposing its path.
 - Unknown actions, extra properties, traversal paths, malformed JSON, oversized bodies, incorrect content types, and unsupported methods fail closed.
 - The server uses `execFile` without a shell and never accepts a browser-provided command, unit name, or filesystem path.
 - Diagnostics exclude credentials, authorization data, environment variables, private keys, user-home paths, and file content.
@@ -24,7 +27,8 @@ The independent recovery portal passed its release gates. It is enabled, authent
 - Firefox passed desktop and mobile rendering at 1280×800 and 390×844.
 - axe-core found zero WCAG 2.2 AA violations at 1440px, 390px, and 320px, including the open confirmation dialog.
 - Reduced-motion, keyboard focus, skip navigation, native dialog semantics, touch controls, and mobile safe reflow were exercised.
-- The authenticated production deployment passed 15 browser assertions across desktop, mobile, and narrow-mobile viewports with zero unexpected browser errors.
+- The direct LAN deployment and public TLS hostname each passed 33 authenticated browser assertions across desktop, mobile, and narrow-mobile viewports with zero unexpected browser errors.
+- The backup panel retains the console's dark glass, acid-green, orange-warning visual system at every tested width; a simulated backup-storage failure left core recovery status online and clearly identified only the snapshot subsystem as unavailable.
 
 ## Production and host controls
 
@@ -34,9 +38,12 @@ The independent recovery portal passed its release gates. It is enabled, authent
 - The local audit directory is mode `0700`; action entries contain only timestamp, fixed action name, and outcome.
 - systemd unit verification passed. The service uses strict filesystem protection, read-only home access, private temporary storage, private keyring, hidden process access, namespace/SUID/realtime restrictions, no-new-privileges, native syscall architecture, and a narrow IP allowlist.
 - The real authenticated action path restarted `claudia-dashboard.service` successfully while the independent recovery service remained active.
+- The real password-rotation path atomically replaced the encrypted credential, restarted the recovery service, rejected the old password with `401`, accepted the new password with `200`, and preserved mode `0600` on the credential.
+- The real production backup path created and re-verified `claudia-20260831T085046Z-dd635599`: a 248,365-byte local snapshot with matching SHA-256 metadata. The backup directory is mode `0700`; its archive and manifest are mode `0600`.
+- Backup storage remains outside the canonical vault at `/var/lib/claudia-recovery/backups`. The portal intentionally exposes verification but no restore, deletion, arbitrary destination, or archive download operation.
 - All five monitored services—gateway, dashboard, speech recognition, speech synthesis, and recovery—reported active after the action.
 
-`systemd-analyze security` reports a medium exposure score because this is a user-manager service that must read selected home paths, accept Nginx Proxy Manager traffic, invoke the user service manager, and run V8. Several stronger capability and executable-memory restrictions are unavailable in this container or incompatible with Node. The portal compensates with application authentication, a fixed action allowlist, no shell, exact-origin enforcement, encrypted credentials, network allowlisting, and no privileged system service.
+`systemd-analyze security` reports a 6.5 medium exposure score because this is a user-manager service that must read selected home paths, write its private snapshot store, accept Nginx Proxy Manager traffic, invoke the user service manager, and run V8. Several stronger capability and executable-memory restrictions are unavailable in this container or incompatible with Node. The portal compensates with application authentication, fixed action and backup operations, no shell, exact-origin enforcement, encrypted credentials, network allowlisting, private filesystem modes, and no privileged system service.
 
 ## Repository-wide release gate
 

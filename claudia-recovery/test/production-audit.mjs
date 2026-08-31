@@ -42,12 +42,19 @@ try {
     assert.match(response.headers()['content-security-policy'], /default-src 'none'/);
     await page.waitForFunction(() => document.querySelector('#readiness')?.textContent !== 'SCANNING');
     assert.equal(await page.locator('.service-card').count(), 5);
+    assert.equal(await page.locator('#password-form').isVisible(), true);
+    assert.equal(await page.locator('#new-password').getAttribute('minlength'), '12');
+    assert.equal(await page.locator('.backup-panel').isVisible(), true);
+    assert.equal(await page.locator('#create-backup').isVisible(), true);
+    await page.waitForFunction(() => !document.querySelector('#backup-capacity')?.textContent.includes('Loading'));
+    assert.match(await page.locator('#backup-capacity').textContent(), /local slots used|unavailable/i);
+    assert.equal(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--acid').trim()), '#caff4a');
     const layout = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     assert.ok(layout.scroll <= layout.width, `${viewport.width}px production layout overflows`);
     const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).analyze();
     assert.deepEqual(accessibility.violations, [], `${viewport.width}px production accessibility: ${accessibility.violations.map((item) => item.id).join(', ')}`);
     assert.deepEqual(errors, [], `${viewport.width}px browser errors`);
-    checks += 5;
+    checks += 11;
     await context.close();
   }
 } finally {

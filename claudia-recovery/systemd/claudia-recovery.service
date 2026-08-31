@@ -10,6 +10,8 @@ Environment=NODE_ENV=production
 Environment=RECOVERY_HOST=127.0.0.1
 Environment=RECOVERY_PORT=4318
 Environment=RECOVERY_ALLOWED_ORIGINS=https://recovery.example.com,http://127.0.0.1:4318
+Environment=RECOVERY_AUTH_CREDENTIAL_PATH=/etc/claudia-recovery/recovery-auth.cred
+Environment=RECOVERY_BACKUP_ROOT=/var/lib/claudia-recovery/backups
 LoadCredentialEncrypted=recovery-auth:/etc/claudia-recovery/recovery-auth.cred
 ExecStart=/usr/bin/node /opt/claudia-recovery/server.mjs
 Restart=on-failure
@@ -19,7 +21,7 @@ KeyringMode=private
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/claudia-recovery
+ReadWritePaths=/var/lib/claudia-recovery /etc/claudia-recovery /var/lib/claudia-recovery/backups
 ProtectControlGroups=true
 ProtectKernelTunables=true
 ProtectProc=invisible

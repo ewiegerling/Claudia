@@ -119,6 +119,7 @@ try {
   await cp(path.join(source, 'public-edition'), staging, { recursive: true, force: true });
 
   const replacements = [
+    [/~\/\.openclaw\/recovery\/claudia-backups/g, '/var/lib/claudia-recovery/backups'],
     [/\b192\.168(?:\.\d{1,3}){2}\b/g, '127.0.0.1'],
     [/\b10(?:\.\d{1,3}){3}\b/g, '127.0.0.1'],
     [/\b172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2}\b/g, '127.0.0.1'],
@@ -128,6 +129,7 @@ try {
     [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.config\/claudia-recovery/g, '/etc/claudia-recovery'],
     [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.local\/lib\/claudia-recovery/g, '/opt/claudia-recovery'],
     [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.local\/state\/claudia-recovery/g, '/var/lib/claudia-recovery'],
+    [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.openclaw\/recovery\/claudia-backups/g, '/var/lib/claudia-recovery/backups'],
     [/\/(?:home|Users)\/[A-Za-z0-9._-]+\/\.openclaw\/workspace/g, '/opt/claudia-vault'],
   ];
 

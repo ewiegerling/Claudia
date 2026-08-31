@@ -96,6 +96,64 @@
           <ol id="audit-list" class="audit-list"><li>No recovery actions recorded.</li></ol>
         </section>
       </div>
+
+      <section class="panel backup-panel" aria-labelledby="backups-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">LOCAL SNAPSHOTS</p><h2 id="backups-title">Vault backups</h2></div>
+          <button id="create-backup" class="execute-button" type="button">Create verified snapshot</button>
+        </div>
+        <div class="backup-intro">
+          <div>
+            <p class="section-copy">Capture the complete canonical vault—including uncommitted memory—into a private zstd archive outside the workspace. Every snapshot receives a SHA-256 integrity manifest.</p>
+            <p class="local-warning"><strong>Local only:</strong> these snapshots protect against bad deployments and vault corruption, not failure of this physical disk.</p>
+          </div>
+          <div class="backup-summary" aria-live="polite">
+            <small>MANAGED SNAPSHOTS</small>
+            <strong id="backup-count">—</strong>
+            <span id="backup-capacity">Loading backup inventory</span>
+          </div>
+        </div>
+        <div id="backup-list" class="backup-list" aria-live="polite"><p class="backup-empty">Scanning managed snapshots…</p></div>
+      </section>
+
+      <section class="panel security-panel" aria-labelledby="security-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">ACCESS CONTROL</p><h2 id="security-title">Recovery password</h2></div>
+          <span class="warning-chip secure-chip">SYSTEMD-ENCRYPTED</span>
+        </div>
+        <div class="security-layout">
+          <div>
+            <p class="section-copy">Rotate the portal credential without exposing it to Git, logs, diagnostics, or the browser after submission. The recovery service restarts after encryption completes.</p>
+            <ul class="security-facts">
+              <li>Minimum 12 characters</li>
+              <li>Maximum 128 characters</li>
+              <li>Current password required</li>
+              <li>Atomic encrypted replacement</li>
+            </ul>
+          </div>
+          <form id="password-form" class="password-form">
+            <label for="current-password">Current password</label>
+            <input id="current-password" type="password" autocomplete="current-password" required maxlength="128" spellcheck="false">
+
+            <label for="new-password">New password</label>
+            <input id="new-password" type="password" autocomplete="new-password" required minlength="12" maxlength="128" aria-describedby="password-requirement password-strength-label" spellcheck="false">
+            <p id="password-requirement" class="field-help">Use 12–128 characters. A longer passphrase is stronger.</p>
+            <div class="strength-track" aria-hidden="true"><span id="password-strength"></span></div>
+            <p id="password-strength-label" class="field-help">Strength: waiting for input</p>
+
+            <label for="confirm-password">Confirm new password</label>
+            <input id="confirm-password" type="password" autocomplete="new-password" required minlength="12" maxlength="128" spellcheck="false">
+
+            <label class="checkbox-row" for="show-passwords">
+              <input id="show-passwords" type="checkbox">
+              <span>Show password fields</span>
+            </label>
+
+            <button id="password-submit" class="execute-button" type="submit">Encrypt & rotate password</button>
+            <p id="password-status" class="form-status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
     </main>
 
     <footer><span>CLAUDIA RECOVERY // ISOLATED CONTROL PLANE</span><span>Diagnostics contain no credentials, environment variables, or file contents.</span></footer>

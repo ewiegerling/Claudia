@@ -8,8 +8,9 @@ const BROWSER_ENV = process.env;
 
 test('WCAG 2.2 AA audit passes at desktop and narrow mobile sizes', async (t) => {
   const instance = await startTestServer();
-  const browser = await chromium.launch({ headless: true, env: BROWSER_ENV });
+  let browser;
   try {
+    browser = await chromium.launch({ headless: true, env: BROWSER_ENV });
     for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }, { width: 320, height: 780 }]) {
       await t.test(`${viewport.width}x${viewport.height}`, async () => {
         const context = await browser.newContext({
@@ -32,7 +33,7 @@ test('WCAG 2.2 AA audit passes at desktop and narrow mobile sizes', async (t) =>
       });
     }
   } finally {
-    await browser.close();
+    await browser?.close();
     await instance.close();
   }
 });

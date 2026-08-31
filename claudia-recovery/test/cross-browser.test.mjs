@@ -9,8 +9,9 @@ const FIREFOX_ENV = process.env;
 
 test('Firefox renders the recovery console at desktop and mobile widths', async (t) => {
   const instance = await startTestServer();
-  const browser = await firefox.launch({ headless: true, env: FIREFOX_ENV });
+  let browser;
   try {
+    browser = await firefox.launch({ headless: true, env: FIREFOX_ENV });
     for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
       await t.test(`${viewport.width}x${viewport.height}`, async () => {
         const context = await browser.newContext({
@@ -22,13 +23,15 @@ test('Firefox renders the recovery console at desktop and mobile widths', async 
         await page.waitForFunction(() => document.querySelector('#readiness')?.textContent === 'NOMINAL');
         assert.equal(await page.locator('.service-card').count(), 5);
         assert.equal(await page.locator('#connection-label').textContent(), 'Recovery link online');
+        assert.equal(await page.locator('.backup-panel').isVisible(), true);
+        assert.equal(await page.locator('#backup-count').textContent(), '0');
         const widths = await page.evaluate(() => [document.documentElement.clientWidth, document.documentElement.scrollWidth]);
         assert.ok(widths[1] <= widths[0]);
         await context.close();
       });
     }
   } finally {
-    await browser.close();
+    await browser?.close();
     await instance.close();
   }
 });

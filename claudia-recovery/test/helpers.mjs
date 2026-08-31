@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createRecoveryServer } from '../server.mjs';
@@ -41,6 +41,8 @@ export async function startTestServer(options = {}) {
     port: 0,
     allowedOrigins: [TEST_ORIGIN],
     auditPath: path.join(stateRoot, 'audit.jsonl'),
+    archiveRoot: path.join(stateRoot, 'archives'),
+    backupRoot: path.join(stateRoot, 'backups'),
     statusProvider: async () => sampleStatus(),
     actionRunner: async (action) => {
       actions.push(action);
@@ -56,7 +58,11 @@ export async function startTestServer(options = {}) {
   return {
     app,
     actions,
+    stateRoot,
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise((resolve, reject) => app.server.close((error) => error ? reject(error) : resolve())),
+    close: async () => {
+      await new Promise((resolve, reject) => app.server.close((error) => error ? reject(error) : resolve()));
+      await rm(stateRoot, { recursive: true, force: true });
+    },
   };
 }
