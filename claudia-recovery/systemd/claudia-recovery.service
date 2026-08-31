@@ -1,0 +1,40 @@
+[Unit]
+Description=Claudia independent break-glass recovery portal
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/claudia-recovery
+Environment=NODE_ENV=production
+Environment=RECOVERY_HOST=127.0.0.1
+Environment=RECOVERY_PORT=4318
+Environment=RECOVERY_ALLOWED_ORIGINS=https://recovery.example.com,http://127.0.0.1:4318
+LoadCredentialEncrypted=recovery-auth:/etc/claudia-recovery/recovery-auth.cred
+ExecStart=/usr/bin/node /opt/claudia-recovery/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+KeyringMode=private
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/claudia-recovery
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1/128
+IPAddressAllow=127.0.0.1/32
+IPAddressAllow=127.0.0.1/32
+UMask=0077
+
+[Install]
+WantedBy=default.target

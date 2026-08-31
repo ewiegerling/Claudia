@@ -9,9 +9,9 @@
   <title>Claudia Dashboard</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/dashboard.css?v=3">
+  <link rel="stylesheet" href="/dashboard.css?v=5">
   <script src="/atlas.js?v=1" defer></script>
-  <script src="/dashboard.js?v=3" defer></script>
+  <script src="/dashboard.js?v=5" defer></script>
 </head>
 <body data-view="overview">
   <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -311,7 +311,7 @@
 
         <section class="view voice-view" id="view-voice" data-view-panel="voice" aria-labelledby="voice-title" hidden>
           <div class="section-hero voice-hero">
-            <div><p class="eyebrow"><span class="voice-ready-dot" aria-hidden="true"></span>Private voice channel</p><h1 id="voice-title">Talk to Claudia.</h1><p>Local speech recognition, the real OpenClaw brain, and a normal male device voice. No cloud speech service gets your microphone audio.</p></div>
+            <div><p class="eyebrow"><span class="voice-ready-dot" aria-hidden="true"></span>Private voice channel</p><h1 id="voice-title">Talk to Claudia.</h1><p>Local speech recognition, the real OpenClaw brain, and a private neural male voice. No cloud speech service gets your microphone or reply audio.</p></div>
             <div class="voice-runtime-badge" id="voice-runtime-badge"><span aria-hidden="true">◉</span><div><strong id="voice-runtime-label">Checking runtime</strong><small id="voice-runtime-detail">Local Whisper · OpenClaw</small></div></div>
           </div>
 
@@ -342,10 +342,10 @@
               <section class="panel voice-controls-panel" aria-labelledby="voice-controls-title">
                 <header><div><p class="eyebrow">Listening controls</p><h2 id="voice-controls-title">Hands-free mode</h2></div><span class="voice-wake-phrase">“Hey Claudia”</span></header>
                 <label class="voice-toggle"><span><strong>Wake phrase</strong><small id="voice-wake-help">Continuously checks short local audio windows.</small></span><input id="voice-wake-toggle" type="checkbox" role="switch" aria-describedby="voice-wake-help"><i aria-hidden="true"></i></label>
-                <label class="voice-toggle"><span><strong>Spoken replies</strong><small>Use a natural male voice available on this device.</small></span><input id="voice-speech-toggle" type="checkbox" role="switch" checked><i aria-hidden="true"></i></label>
+                <label class="voice-toggle"><span><strong>Spoken replies</strong><small>Automatically play the local Piper male voice.</small></span><input id="voice-speech-toggle" type="checkbox" role="switch" checked><i aria-hidden="true"></i></label>
               </section>
               <section class="panel voice-conversation-panel" aria-labelledby="voice-conversation-title">
-                <header><div><p class="eyebrow">Current session</p><h2 id="voice-conversation-title">Conversation</h2></div><button id="voice-clear-button" type="button">Clear</button></header>
+                <header><div><p class="eyebrow">Current session</p><h2 id="voice-conversation-title">Conversation</h2></div><div class="voice-conversation-actions"><button id="voice-replay-button" type="button" disabled>Play reply</button><button id="voice-clear-button" type="button">Clear</button></div></header>
                 <div class="voice-conversation" id="voice-conversation" role="log" aria-live="polite" aria-relevant="additions">
                   <div class="voice-empty"><span aria-hidden="true">⌁</span><p>Nothing said yet. A rare and beautiful moment of restraint.</p></div>
                 </div>

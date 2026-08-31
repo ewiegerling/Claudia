@@ -32,6 +32,10 @@ before(async () => {
       status: async () => true,
       transcribe: async () => 'test voice prompt',
     },
+    voiceSynthesizer: {
+      status: async () => true,
+      synthesize: async () => makeVoiceWav(),
+    },
     voiceAgent: {
       status: async () => true,
       ask: async (text) => `Test reply for: ${text}`,
@@ -158,7 +162,7 @@ test('dashboard API exposes bounded read-only telemetry with current identities'
   assert.ok(dashboard.resources.storage.totalBytes > 0);
   assert.equal(dashboard.network.canonicalHost, 'dashboard.example.com');
   assert.equal(dashboard.network.upstream, '127.0.0.1:4317');
-  assert.deepEqual(dashboard.services.map((service) => service.id), ['claudia-dashboard', 'claudia-stt', 'openclaw-gateway', 'memory-store']);
+  assert.deepEqual(dashboard.services.map((service) => service.id), ['claudia-dashboard', 'claudia-stt', 'claudia-tts', 'openclaw-gateway', 'memory-store']);
   assert.equal(JSON.stringify(dashboard).includes('/opt/operator'), false);
 });
 
@@ -171,11 +175,11 @@ test('voice terminal is local, bounded, same-origin, and connected to the inject
   const statusResponse = await fetch(`${baseUrl}/api/voice/status`);
   assert.equal(statusResponse.status, 200);
   const status = await statusResponse.json();
-  assert.deepEqual({ available: status.available, transcription: status.transcription, agent: status.agent }, {
-    available: true, transcription: true, agent: true,
+  assert.deepEqual({ available: status.available, transcription: status.transcription, speech: status.speech, agent: status.agent }, {
+    available: true, transcription: true, speech: true, agent: true,
   });
   assert.equal(status.wakePhrase, 'Hey Claudia');
-  assert.equal(status.speechOutput, 'local-device-voice');
+  assert.equal(status.speechOutput, 'local-server-voice');
   assert.doesNotMatch(JSON.stringify(status), /(?:\/home\/|token|password|key)/i);
 
   const rejectedOrigin = await fetch(`${baseUrl}/api/voice/transcribe`, {
@@ -209,6 +213,22 @@ test('voice terminal is local, bounded, same-origin, and connected to the inject
   assert.deepEqual(await answer.json(), {
     reply: 'Test reply for: What is the system status?', session: 'dashboard-voice', spokenLocally: true,
   });
+
+  const rejectedSpeechOrigin = await fetch(`${baseUrl}/api/voice/speak`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Claudia-Voice': 'speak', Origin: 'https://hostile.invalid' },
+    body: JSON.stringify({ text: 'Do not speak this.' }),
+  });
+  assert.equal(rejectedSpeechOrigin.status, 403);
+
+  const speech = await fetch(`${baseUrl}/api/voice/speak`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Claudia-Voice': 'speak', Origin: baseUrl },
+    body: JSON.stringify({ text: 'Speak this reply locally.' }),
+  });
+  assert.equal(speech.status, 200);
+  assert.equal(speech.headers.get('content-type'), 'audio/wav');
+  assert.equal(Buffer.from(await speech.arrayBuffer()).toString('ascii', 0, 4), 'RIFF');
 
   const cancel = await fetch(`${baseUrl}/api/voice/cancel`, {
     method: 'POST', headers: { 'X-Claudia-Voice': 'cancel', Origin: baseUrl },

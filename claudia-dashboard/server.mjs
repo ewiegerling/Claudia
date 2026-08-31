@@ -11,9 +11,11 @@ import { marked } from 'marked';
 import sanitizeHtml from 'sanitize-html';
 import { loadAtlas } from './atlas.mjs';
 import {
+  createLocalVoiceSynthesizer,
   createLocalVoiceTranscriber,
   createOpenClawVoiceAgent,
   MAX_VOICE_PROMPT_CHARACTERS,
+  MAX_VOICE_REPLY_CHARACTERS,
   readRawBody,
   validatePcmWav,
 } from './voice.mjs';
@@ -36,6 +38,7 @@ const SOURCE_BYTES = Symbol('sourceBytes');
 const SERVICE_DEFINITIONS = [
   { id: 'claudia-dashboard', name: 'Claudia Dashboard', unit: 'claudia-dashboard.service', description: 'Private operations and memory dashboard' },
   { id: 'claudia-stt', name: 'Local Speech Engine', unit: 'claudia-stt.service', description: 'Private on-device Whisper transcription' },
+  { id: 'claudia-tts', name: 'Local Voice Engine', unit: 'claudia-tts.service', description: 'Private Piper neural speech synthesis' },
   { id: 'openclaw-gateway', name: 'OpenClaw Gateway', unit: 'openclaw-gateway.service', description: 'Agent runtime and integration gateway' },
 ];
 
@@ -993,6 +996,7 @@ async function serveStatic(requestPath, response, headOnly = false) {
 export function createDashboardServer({
   authenticationRotator = rotateDashboardAuthentication,
   voiceTranscriber = createLocalVoiceTranscriber(),
+  voiceSynthesizer = createLocalVoiceSynthesizer(),
   voiceAgent = createOpenClawVoiceAgent(),
 } = {}) {
   const collectAtlas = createAtlasCollector();
@@ -1004,8 +1008,10 @@ export function createDashboardServer({
     .catch((error) => ({ authentication: null, error }));
   let passwordChangePending = false;
   let voiceTranscriptionsPending = 0;
+  let voiceSpeechesPending = 0;
   let voiceTurnController = null;
   const consumeTranscription = createRateLimiter(36, 60_000);
+  const consumeVoiceSpeech = createRateLimiter(20, 60_000);
   const consumeVoiceTurn = createRateLimiter(12, 60_000);
   const handleRequest = async (request, response) => {
     runtimeStats.requests += 1;
@@ -1019,7 +1025,7 @@ export function createDashboardServer({
 
     const rotatesCredential = request.method === 'POST' && url.pathname === '/api/settings/password';
     const voiceWrite = request.method === 'POST' && [
-      '/api/voice/transcribe', '/api/voice/ask', '/api/voice/cancel',
+      '/api/voice/transcribe', '/api/voice/ask', '/api/voice/speak', '/api/voice/cancel',
     ].includes(url.pathname);
     if (request.method !== 'GET' && !headOnly && !rotatesCredential && !voiceWrite) {
       return jsonResponse(response, 405, { error: 'This write route does not exist.' }, headOnly, { Allow: 'GET, HEAD' });
@@ -1080,16 +1086,18 @@ export function createDashboardServer({
     }
 
     if (url.pathname === '/api/voice/status') {
-      const [transcription, agent] = await Promise.all([
+      const [transcription, speech, agent] = await Promise.all([
         voiceTranscriber.status().catch(() => false),
+        voiceSynthesizer.status().catch(() => false),
         voiceAgent.status().catch(() => false),
       ]);
       return jsonResponse(response, 200, {
-        available: transcription && agent,
+        available: transcription && speech && agent,
         transcription,
+        speech,
         agent,
         wakePhrase: 'Hey Claudia',
-        speechOutput: 'local-device-voice',
+        speechOutput: 'local-server-voice',
         maximumRecordingSeconds: 32,
         privacy: 'Microphone audio is sent only to this private dashboard and its loopback speech engine.',
       }, headOnly);
@@ -1153,6 +1161,43 @@ export function createDashboardServer({
         return undefined;
       } finally {
         voiceTurnController = null;
+      }
+    }
+
+    if (url.pathname === '/api/voice/speak') {
+      if (request.headers['x-claudia-voice'] !== 'speak' || !requestHasSameOrigin(request)
+        || String(request.headers['content-type'] || '').toLowerCase() !== 'application/json') {
+        return jsonResponse(response, 403, { error: 'Voice playback request was rejected.' });
+      }
+      const clientKey = String(request.socket.remoteAddress || 'unknown');
+      const limit = consumeVoiceSpeech(clientKey);
+      if (!limit.allowed) return jsonResponse(response, 429, { error: 'Voice playback rate limit reached.' }, false, { 'Retry-After': String(limit.retryAfter) });
+      if (voiceSpeechesPending >= 1) return jsonResponse(response, 503, { error: 'The local voice engine is already speaking.' }, false, { 'Retry-After': '2' });
+      const controller = new AbortController();
+      request.on('aborted', () => controller.abort());
+      response.on('close', () => { if (!response.writableEnded) controller.abort(); });
+      voiceSpeechesPending += 1;
+      try {
+        const payload = await readJsonBody(request, 8_192);
+        const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
+        if (!text) return jsonResponse(response, 400, { error: 'There is no reply to speak.' });
+        if (text.length > MAX_VOICE_REPLY_CHARACTERS) return jsonResponse(response, 413, { error: 'Voice reply is too long.' });
+        const audio = await voiceSynthesizer.synthesize(text, { signal: controller.signal });
+        response.writeHead(200, {
+          ...SECURITY_HEADERS,
+          'Cache-Control': 'no-store',
+          'Content-Length': audio.length,
+          'Content-Type': 'audio/wav',
+        });
+        response.end(audio);
+        return undefined;
+      } catch (error) {
+        const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : 500;
+        if (statusCode >= 500 && statusCode !== 504) console.error('Voice synthesis failed:', error.message);
+        if (!response.writableEnded) return jsonResponse(response, statusCode, { error: statusCode === 500 ? 'Voice synthesis failed safely.' : error.message });
+        return undefined;
+      } finally {
+        voiceSpeechesPending -= 1;
       }
     }
 

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#080a0f">
+    <meta name="description" content="Independent break-glass recovery controls for Claudia.">
+    <title>Claudia Recovery</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="stylesheet" href="/recovery.css">
+    <script src="/recovery.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to recovery controls</a>
+    <div class="ambient" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="#main" aria-label="Claudia Recovery home">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span><strong>CLAUDIA</strong><small>BREAK-GLASS RECOVERY</small></span>
+      </a>
+      <div class="connection" role="status" aria-live="polite">
+        <span id="connection-dot" class="connection-dot"></span>
+        <span id="connection-label">Establishing link</span>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <div>
+          <p class="eyebrow">INDEPENDENT CONTROL PLANE // PORT 4318</p>
+          <h1 id="hero-title">When everything else is on fire, start here.</h1>
+          <p class="hero-copy">A hardened, isolated rescue console for inspecting and restarting Claudia's core systems. No shell. No arbitrary commands. No bullshit.</p>
+        </div>
+        <div class="readiness-card">
+          <span class="radar" aria-hidden="true"><span></span></span>
+          <div><small>SYSTEM READINESS</small><strong id="readiness">SCANNING</strong></div>
+          <span id="last-refresh" class="timestamp">Never</span>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="Host health">
+        <article><small>UPTIME</small><strong id="uptime">—</strong><span>host runtime</span></article>
+        <article><small>MEMORY</small><strong id="memory">—</strong><span>used</span></article>
+        <article><small>DISK</small><strong id="disk">—</strong><span>used</span></article>
+        <article><small>LOAD</small><strong id="load">—</strong><span>1 / 5 / 15 min</span></article>
+      </section>
+
+      <section class="panel" aria-labelledby="services-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">LIVE TELEMETRY</p><h2 id="services-title">Service matrix</h2></div>
+          <button id="refresh" class="ghost-button" type="button">Refresh status</button>
+        </div>
+        <div id="service-grid" class="service-grid" aria-live="polite"></div>
+      </section>
+
+      <section class="panel danger-zone" aria-labelledby="actions-title">
+        <div class="section-heading">
+          <div><p class="eyebrow danger">CONTROLLED INTERVENTION</p><h2 id="actions-title">Recovery actions</h2></div>
+          <span class="warning-chip">AUTHENTICATED + AUDITED</span>
+        </div>
+        <p class="section-copy">Every control is deliberately fixed to known user services. Pick the smallest blast radius that fixes the problem.</p>
+        <div class="action-grid">
+          <button class="action-card" type="button" data-action="restart_gateway" data-label="Restart OpenClaw gateway" data-impact="Active OpenClaw sessions may reconnect while the gateway restarts.">
+            <span class="action-number">01</span><span><strong>Gateway</strong><small>Restart the OpenClaw transport and session gateway.</small></span><span class="arrow" aria-hidden="true">→</span>
+          </button>
+          <button class="action-card" type="button" data-action="restart_dashboard" data-label="Restart dashboard" data-impact="The main dashboard will briefly disconnect; this recovery portal remains online.">
+            <span class="action-number">02</span><span><strong>Dashboard</strong><small>Restart only the primary Claudia interface.</small></span><span class="arrow" aria-hidden="true">→</span>
+          </button>
+          <button class="action-card" type="button" data-action="restart_voice" data-label="Restart voice stack" data-impact="Speech recognition and playback will be unavailable during restart.">
+            <span class="action-number">03</span><span><strong>Voice stack</strong><small>Restart local speech recognition and synthesis.</small></span><span class="arrow" aria-hidden="true">→</span>
+          </button>
+          <button class="action-card critical" type="button" data-action="restart_claudia" data-label="Restart Claudia stack" data-impact="Gateway, dashboard, speech recognition, and speech synthesis will all restart.">
+            <span class="action-number">04</span><span><strong>Full Claudia stack</strong><small>Use only when the fault crosses multiple services.</small></span><span class="arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+      </section>
+
+      <div class="split-grid">
+        <section class="panel" aria-labelledby="vault-title">
+          <div class="section-heading"><div><p class="eyebrow">RECOVERY READINESS</p><h2 id="vault-title">Vault & archives</h2></div></div>
+          <dl class="vault-stats">
+            <div><dt>Branch</dt><dd id="vault-branch">—</dd></div>
+            <div><dt>Commit</dt><dd id="vault-commit">—</dd></div>
+            <div><dt>Pending</dt><dd id="vault-pending">—</dd></div>
+          </dl>
+          <h3>Local recovery archives</h3>
+          <ul id="archive-list" class="plain-list"><li>Scanning archive store…</li></ul>
+        </section>
+
+        <section class="panel" aria-labelledby="audit-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">LOCAL EVIDENCE</p><h2 id="audit-title">Action trail</h2></div>
+            <button id="download-diagnostics" class="ghost-button" type="button">Download diagnostics</button>
+          </div>
+          <ol id="audit-list" class="audit-list"><li>No recovery actions recorded.</li></ol>
+        </section>
+      </div>
+    </main>
+
+    <footer><span>CLAUDIA RECOVERY // ISOLATED CONTROL PLANE</span><span>Diagnostics contain no credentials, environment variables, or file contents.</span></footer>
+
+    <dialog id="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-impact">
+      <form method="dialog">
+        <span class="dialog-alert" aria-hidden="true">!</span>
+        <p class="eyebrow danger">CONFIRM INTERVENTION</p>
+        <h2 id="confirm-title">Restart service</h2>
+        <p id="confirm-impact"></p>
+        <div class="dialog-actions">
+          <button class="ghost-button" value="cancel">Cancel</button>
+          <button id="execute-action" class="execute-button" value="default">Arm & execute</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

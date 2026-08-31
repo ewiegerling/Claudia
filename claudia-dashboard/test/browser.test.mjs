@@ -19,6 +19,30 @@ const HTTP_CREDENTIALS = hasTestUser
   : null;
 const BROWSER_ENV = process.env;
 
+function makePlaybackWav(durationSeconds = 0.08) {
+  const sampleRate = 22_050;
+  const sampleCount = Math.round(sampleRate * durationSeconds);
+  const dataBytes = sampleCount * 2;
+  const wav = Buffer.alloc(44 + dataBytes);
+  wav.write('RIFF', 0);
+  wav.writeUInt32LE(36 + dataBytes, 4);
+  wav.write('WAVE', 8);
+  wav.write('fmt ', 12);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write('data', 36);
+  wav.writeUInt32LE(dataBytes, 40);
+  for (let index = 0; index < sampleCount; index += 1) {
+    wav.writeInt16LE(Math.round(Math.sin(index / sampleRate * 440 * Math.PI * 2) * 3_000), 44 + index * 2);
+  }
+  return wav;
+}
+
 function withHttpCredentials(options = {}) {
   return HTTP_CREDENTIALS ? { ...options, httpCredentials: HTTP_CREDENTIALS } : options;
 }
@@ -118,6 +142,95 @@ test('production-style browser audit', async (t) => {
       assert.match(await page.locator('#voice-runtime-detail').innerText(), /Whisper|OpenClaw/i);
       await assertNoOverflow(page, 'desktop Voice Terminal');
       await page.screenshot({ path: `${OUTPUT_DIR}/voice-desktop.png`, fullPage: true });
+      assert.deepEqual(errors, []);
+      await page.close();
+    });
+
+    await t.test('Voice Terminal automatically plays local Piper audio and can replay the last reply', async () => {
+      const page = await browser.newPage(withHttpCredentials({ viewport: { width: 390, height: 844 } }));
+      const errors = watchErrors(page);
+      let speechRequests = 0;
+      await page.route('**/api/voice/ask', async (route) => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ reply: 'Automatic voice reply.', session: 'dashboard-voice', spokenLocally: true }),
+      }));
+      await page.route('**/api/voice/speak', async (route) => {
+        speechRequests += 1;
+        assert.deepEqual(route.request().postDataJSON(), { text: 'Automatic voice reply.' });
+        await route.fulfill({ status: 200, contentType: 'audio/wav', body: makePlaybackWav() });
+      });
+      await page.goto(`${BASE_URL}/#voice`, { waitUntil: 'domcontentloaded' });
+      await waitForDashboard(page);
+      await page.locator('#voice-text-input').fill('Test spoken output.');
+      await page.locator('#voice-text-submit').click();
+      await page.waitForFunction(() => document.querySelectorAll('.voice-message').length === 2);
+      await page.waitForFunction(() => document.querySelector('#voice-stage')?.dataset.voiceState === 'idle');
+      assert.equal(speechRequests, 1);
+      assert.equal(await page.locator('#voice-replay-button').isEnabled(), true);
+      await page.locator('#voice-replay-button').click();
+      await page.waitForFunction(() => document.querySelector('#voice-stage')?.dataset.voiceState === 'idle');
+      assert.equal(speechRequests, 2);
+      assert.deepEqual(errors, []);
+      await page.close();
+    });
+
+    await t.test('Voice Terminal preserves and normalizes quiet microphone speech', async () => {
+      const page = await browser.newPage(withHttpCredentials({ viewport: { width: 390, height: 844 } }));
+      const errors = watchErrors(page);
+      let capturedAudio;
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'mediaDevices', {
+          configurable: true,
+          value: {
+            getUserMedia: async () => {
+              const AudioEngine = window.AudioContext || window.webkitAudioContext;
+              const context = new AudioEngine();
+              await context.resume();
+              const oscillator = context.createOscillator();
+              const gain = context.createGain();
+              const destination = context.createMediaStreamDestination();
+              oscillator.frequency.value = 220;
+              gain.gain.value = .003;
+              oscillator.connect(gain).connect(destination);
+              oscillator.start();
+              window.__quietMicrophoneFixture = { context, oscillator, gain, destination };
+              return destination.stream;
+            },
+          },
+        });
+      });
+      await page.route('**/api/voice/transcribe', async (route) => {
+        capturedAudio = route.request().postDataBuffer();
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+          transcript: 'quiet microphone speech', durationSeconds: 2.4, local: true,
+        }) });
+      });
+      await page.route('**/api/voice/ask', async (route) => route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ reply: 'Quiet speech received.', session: 'dashboard-voice', spokenLocally: true }),
+      }));
+      await page.goto(`${BASE_URL}/#voice`, { waitUntil: 'domcontentloaded' });
+      await waitForDashboard(page);
+      await page.locator('#view-voice').waitFor({ state: 'visible' });
+      await page.locator('.voice-toggle').filter({ has: page.locator('#voice-speech-toggle') }).click();
+      await page.locator('#voice-main-button').click();
+      await page.waitForTimeout(2_200);
+      assert.equal(await page.locator('#voice-stage').getAttribute('data-voice-state'), 'listening');
+      await page.locator('#voice-main-button').click();
+      await page.waitForFunction(() => document.querySelectorAll('.voice-message').length === 2, null, { timeout: 10_000 });
+      assert.ok(capturedAudio && capturedAudio.length > 44);
+      assert.equal(capturedAudio.toString('ascii', 0, 4), 'RIFF');
+      assert.equal(capturedAudio.readUInt32LE(24), 16_000);
+      let sumSquares = 0;
+      const sampleCount = (capturedAudio.length - 44) / 2;
+      for (let index = 0; index < sampleCount; index += 1) {
+        const sample = capturedAudio.readInt16LE(44 + index * 2) / 32_768;
+        sumSquares += sample * sample;
+      }
+      assert.ok(Math.sqrt(sumSquares / sampleCount) > .035, 'quiet microphone audio was not normalized');
+      assert.match(await page.locator('.voice-message.user').innerText(), /quiet microphone speech/i);
       assert.deepEqual(errors, []);
       await page.close();
     });

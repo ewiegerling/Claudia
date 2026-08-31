@@ -9,6 +9,8 @@ const execFileAsync = promisify(execFile);
 export const MAX_VOICE_AUDIO_BYTES = 1_100_000;
 export const MAX_VOICE_PROMPT_CHARACTERS = 2_000;
 export const MAX_VOICE_REPLY_CHARACTERS = 6_000;
+export const MAX_VOICE_SPEECH_CHARACTERS = 1_500;
+export const MAX_VOICE_SPEECH_BYTES = 8 * 1024 * 1024;
 
 function voiceError(message, statusCode = 500) {
   return Object.assign(new Error(message), { statusCode });
@@ -54,6 +56,80 @@ function normalizeTranscript(value) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_VOICE_PROMPT_CHARACTERS);
+}
+
+export function normalizeSpeechText(value) {
+  return String(value || '')
+    .replace(/```[^]*?```/g, ' code block omitted ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/gi, 'link provided on screen')
+    .replace(/[*_#>|~]+/g, ' ')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_VOICE_SPEECH_CHARACTERS);
+}
+
+async function readBoundedResponse(response, maximumBytes) {
+  const reader = response.body?.getReader();
+  if (!reader) throw voiceError('Local voice synthesis returned no audio.', 502);
+  const chunks = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > maximumBytes) {
+      await reader.cancel();
+      throw voiceError('Local voice synthesis exceeded its audio limit.', 502);
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks, size);
+}
+
+export function createLocalVoiceSynthesizer({
+  endpoint = process.env.DASHBOARD_TTS_URL || 'http://127.0.0.1:4321/synthesize',
+  timeoutMs = 45_000,
+} = {}) {
+  const synthesisUrl = new URL(endpoint);
+  const statusUrl = new URL('/health', synthesisUrl);
+  return Object.freeze({
+    async status() {
+      try {
+        const response = await fetch(statusUrl, { signal: AbortSignal.timeout(1_500) });
+        return response.ok;
+      } catch {
+        return false;
+      }
+    },
+    async synthesize(value, { signal } = {}) {
+      const text = normalizeSpeechText(value);
+      if (!text) throw voiceError('There is no speakable reply.', 400);
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      let response;
+      try {
+        response = await fetch(synthesisUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+          signal: combined,
+        });
+      } catch (error) {
+        if (error.name === 'AbortError' || error.name === 'TimeoutError') throw voiceError('Local voice synthesis timed out.', 504);
+        throw voiceError('Local voice synthesis is unavailable.', 503);
+      }
+      if (!response.ok) throw voiceError('Local voice synthesis failed safely.', 502);
+      const audio = await readBoundedResponse(response, MAX_VOICE_SPEECH_BYTES);
+      if (audio.length < 44 || audio.toString('ascii', 0, 4) !== 'RIFF' || audio.toString('ascii', 8, 12) !== 'WAVE') {
+        throw voiceError('Local voice synthesis returned malformed audio.', 502);
+      }
+      return audio;
+    },
+  });
 }
 
 export function createLocalVoiceTranscriber({

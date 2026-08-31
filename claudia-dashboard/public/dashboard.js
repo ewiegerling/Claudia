@@ -39,6 +39,7 @@ const voice = {
   recordingSamples: 0,
   recordingStartedAt: 0,
   quietForMs: 0,
+  speechDetected: false,
   wakeEnabled: false,
   wakeChunks: [],
   wakeSamples: 0,
@@ -49,6 +50,10 @@ const voice = {
   levelHistory: Array.from({ length: 72 }, () => 0),
   animationFrame: null,
   conversation: [],
+  lastReply: '',
+  speechPrimed: false,
+  outputContext: null,
+  playbackSource: null,
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -621,6 +626,7 @@ function renderVoiceStatus() {
   setText('#voice-runtime-label', available ? 'Voice runtime online' : 'Voice runtime limited');
   setText('#voice-runtime-detail', [
     status.transcription ? 'Whisper ready' : 'Whisper offline',
+    status.speech ? 'Piper ready' : 'Piper offline',
     status.agent ? 'OpenClaw ready' : 'OpenClaw offline',
     microphoneSupported ? 'secure microphone' : 'microphone unavailable',
   ].join(' · '));
@@ -633,7 +639,7 @@ async function loadVoiceStatus() {
   try {
     state.voiceStatus = await fetchJson('/api/voice/status');
   } catch {
-    state.voiceStatus = { available: false, transcription: false, agent: false };
+    state.voiceStatus = { available: false, transcription: false, speech: false, agent: false };
   }
   renderVoiceStatus();
 }
@@ -692,8 +698,29 @@ function downsampleAudio(chunks, inputRate, outputRate = 16_000) {
   return output;
 }
 
+function normalizeVoiceAudio(samples) {
+  if (!samples.length) return samples;
+  let mean = 0;
+  for (const sample of samples) mean += sample;
+  mean /= samples.length;
+  let sumSquares = 0;
+  let peak = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    const centered = samples[index] - mean;
+    samples[index] = centered;
+    sumSquares += centered * centered;
+    peak = Math.max(peak, Math.abs(centered));
+  }
+  const rms = Math.sqrt(sumSquares / samples.length);
+  if (peak < .0005 || rms < .0001) return samples;
+  const gain = Math.max(1, Math.min(24, .96 / peak, .08 / rms));
+  if (gain === 1) return samples;
+  for (let index = 0; index < samples.length; index += 1) samples[index] *= gain;
+  return samples;
+}
+
 function encodePcmWav(chunks, inputRate) {
-  const samples = downsampleAudio(chunks, inputRate);
+  const samples = normalizeVoiceAudio(downsampleAudio(chunks, inputRate));
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
   const writeAscii = (offset, text) => [...text].forEach((character, index) => view.setUint8(offset + index, character.charCodeAt(0)));
@@ -741,9 +768,14 @@ function audioFrame(event) {
   if (voice.recording) {
     voice.recordingChunks.push(copy);
     voice.recordingSamples += copy.length;
-    voice.quietForMs = rms < .012 ? voice.quietForMs + frameMs : 0;
+    if (rms >= .0018) {
+      voice.speechDetected = true;
+      voice.quietForMs = 0;
+    } else if (voice.speechDetected) {
+      voice.quietForMs += frameMs;
+    }
     const elapsed = performance.now() - voice.recordingStartedAt;
-    if ((elapsed > 1_150 && voice.quietForMs > 1_050) || elapsed > 30_000) queueMicrotask(() => finishVoiceRecording());
+    if ((voice.speechDetected && elapsed > 900 && voice.quietForMs > 950) || elapsed > 30_000) queueMicrotask(() => finishVoiceRecording());
     return;
   }
   if (voice.wakeEnabled && !voice.wakeBusy && $('#voice-stage')?.dataset.voiceState === 'idle') {
@@ -821,13 +853,13 @@ async function checkWakePhrase() {
 
 async function startVoiceRecording() {
   try {
-    window.speechSynthesis?.cancel();
     voice.speechToken += 1;
     await ensureAudioInput();
     voice.recordingChunks = [];
     voice.recordingSamples = 0;
     voice.recordingStartedAt = performance.now();
     voice.quietForMs = 0;
+    voice.speechDetected = false;
     voice.recording = true;
     setVoiceState('listening', 'Listening', 'Speak naturally. Silence sends automatically, or tap the button when you are done.');
   } catch (error) {
@@ -845,6 +877,7 @@ async function finishVoiceRecording() {
   const duration = voice.recordingSamples / voice.context.sampleRate;
   voice.recordingChunks = [];
   voice.recordingSamples = 0;
+  voice.speechDetected = false;
   if (duration < .2) {
     setVoiceState('idle', 'Recording was too short', 'Try again and say an entire thought this time.');
     return;
@@ -875,51 +908,87 @@ function appendVoiceMessage(role, text) {
   log.scrollTop = log.scrollHeight;
 }
 
-function chooseMaleDeviceVoice() {
-  if (!window.speechSynthesis) return null;
-  const voices = speechSynthesis.getVoices();
-  const english = voices.filter((item) => /^en(?:-|_)/i.test(item.lang));
-  const local = english.filter((item) => item.localService);
-  const pool = local.length ? local : english;
-  const preferred = /\b(?:alex|aaron|daniel|david|fred|guy|mark|ryan|tom|male|matthew|christopher|eric|arthur|oliver)\b/i;
-  return pool.find((item) => preferred.test(item.name)) || pool.find((item) => /en[-_](?:US|GB)/i.test(item.lang)) || pool[0] || voices[0] || null;
+function primeSpeechOutput() {
+  if (voice.speechPrimed || !$('#voice-speech-toggle')?.checked) return voice.outputContext;
+  try {
+    const AudioEngine = window.AudioContext || window.webkitAudioContext;
+    if (!AudioEngine) throw new Error('This browser has no audio playback engine.');
+    if (!voice.outputContext || voice.outputContext.state === 'closed') voice.outputContext = new AudioEngine({ latencyHint: 'interactive' });
+    voice.outputContext.resume().catch(() => {});
+    const primer = voice.outputContext.createBufferSource();
+    primer.buffer = voice.outputContext.createBuffer(1, 1, 22_050);
+    primer.connect(voice.outputContext.destination);
+    primer.start();
+    voice.speechPrimed = true;
+    return voice.outputContext;
+  } catch {
+    voice.speechPrimed = false;
+    return null;
+  }
 }
 
-function speechChunks(text) {
-  const sentences = String(text).replace(/https?:\/\/\S+/g, 'link provided on screen').split(/(?<=[.!?])\s+/);
-  const chunks = [];
-  for (const sentence of sentences) {
-    if (!sentence) continue;
-    if (sentence.length <= 240) chunks.push(sentence);
-    else for (let index = 0; index < sentence.length; index += 220) chunks.push(sentence.slice(index, index + 220));
-  }
-  return chunks;
+function decodeVoiceAudio(context, audio) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (handler) => (value) => {
+      if (settled) return;
+      settled = true;
+      handler(value);
+    };
+    const pending = context.decodeAudioData(audio.slice(0), finish(resolve), finish(reject));
+    pending?.then(finish(resolve), finish(reject));
+  });
 }
 
 async function speakVoiceReply(text) {
-  if (!$('#voice-speech-toggle').checked || !window.speechSynthesis) {
+  voice.lastReply = String(text || '');
+  $('#voice-replay-button').disabled = !voice.lastReply;
+  if (!$('#voice-speech-toggle').checked) {
     setVoiceState('idle', voice.wakeEnabled ? 'Waiting for “Hey Claudia”' : 'Ready when you are', 'The reply is on screen. Spoken replies are disabled.');
-    return;
+    return false;
   }
   const token = ++voice.speechToken;
-  speechSynthesis.cancel();
-  setVoiceState('speaking', 'Speaking', 'Tap the microphone to interrupt and talk over me.');
-  const selectedVoice = chooseMaleDeviceVoice();
-  for (const chunk of speechChunks(text)) {
-    if (token !== voice.speechToken) return;
-    await new Promise((resolve) => {
-      const utterance = new SpeechSynthesisUtterance(chunk);
-      utterance.voice = selectedVoice;
-      utterance.lang = selectedVoice?.lang || 'en-US';
-      utterance.rate = .96;
-      utterance.pitch = .94;
-      utterance.volume = 1;
-      utterance.onend = resolve;
-      utterance.onerror = resolve;
-      speechSynthesis.speak(utterance);
+  setVoiceState('speaking', 'Building local voice', 'Piper is generating private speech audio on this server.');
+  try {
+    const response = await fetch('/api/voice/speak', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Claudia-Voice': 'speak' },
+      body: JSON.stringify({ text: voice.lastReply }),
+      signal: voice.requestController?.signal,
     });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Local voice generation failed.');
+    }
+    const audio = await response.arrayBuffer();
+    if (token !== voice.speechToken) return false;
+    const context = primeSpeechOutput();
+    if (!context) throw new Error('The browser audio engine could not be started.');
+    await context.resume();
+    const decoded = await decodeVoiceAudio(context, audio);
+    if (token !== voice.speechToken) return false;
+    const source = context.createBufferSource();
+    const gain = context.createGain();
+    gain.gain.value = .96;
+    source.buffer = decoded;
+    source.connect(gain).connect(context.destination);
+    voice.playbackSource = source;
+    setVoiceState('speaking', 'Speaking', 'Tap the microphone to interrupt and talk over me.');
+    await new Promise((resolve) => {
+      source.onended = resolve;
+      source.start();
+    });
+    if (voice.playbackSource === source) voice.playbackSource = null;
+  } catch (error) {
+    if (token !== voice.speechToken) return false;
+    if (error.name !== 'AbortError') {
+      setVoiceState('idle', 'Local voice failed', error.message);
+      toast(error.message);
+    }
+    return false;
   }
   if (token === voice.speechToken) setVoiceState('idle', voice.wakeEnabled ? 'Waiting for “Hey Claudia”' : 'Ready when you are', voice.wakeEnabled ? 'Hands-free listening is active.' : 'Press the microphone whenever your next thought finally arrives.');
+  return true;
 }
 
 async function askVoice(text) {
@@ -954,10 +1023,12 @@ async function interruptVoice() {
   voice.recording = false;
   voice.recordingChunks = [];
   voice.recordingSamples = 0;
+  voice.speechDetected = false;
   voice.requestController?.abort();
   voice.requestController = null;
   voice.speechToken += 1;
-  window.speechSynthesis?.cancel();
+  try { voice.playbackSource?.stop(); } catch {}
+  voice.playbackSource = null;
   fetch('/api/voice/cancel', { method: 'POST', headers: { 'X-Claudia-Voice': 'cancel' } }).catch(() => {});
   setVoiceState('idle', voice.wakeEnabled ? 'Waiting for “Hey Claudia”' : 'Interrupted', 'The previous turn was stopped.');
 }
@@ -966,6 +1037,7 @@ async function toggleWakePhrase(event) {
   const enabled = event.currentTarget.checked;
   if (enabled) {
     try {
+      primeSpeechOutput();
       await ensureAudioInput();
       voice.wakeEnabled = true;
       voice.wakeChunks = [];
@@ -1234,6 +1306,7 @@ function bindEvents() {
     ['#current-password', '#new-password', '#confirm-password'].forEach((selector) => { $(selector).type = type; });
   });
   $('#voice-main-button').addEventListener('click', async () => {
+    primeSpeechOutput();
     const kind = $('#voice-stage').dataset.voiceState;
     if (kind === 'listening') await finishVoiceRecording();
     else if (kind === 'speaking') { await interruptVoice(); await startVoiceRecording(); }
@@ -1241,8 +1314,12 @@ function bindEvents() {
   });
   $('#voice-stop-button').addEventListener('click', interruptVoice);
   $('#voice-wake-toggle').addEventListener('change', toggleWakePhrase);
+  $('#voice-speech-toggle').addEventListener('change', (event) => {
+    if (event.currentTarget.checked) primeSpeechOutput();
+  });
   $('#voice-text-form').addEventListener('submit', async (event) => {
     event.preventDefault();
+    primeSpeechOutput();
     const input = $('#voice-text-input');
     const value = input.value.trim();
     if (!value) return;
@@ -1251,11 +1328,18 @@ function bindEvents() {
   });
   $('#voice-clear-button').addEventListener('click', () => {
     voice.conversation = [];
+    voice.lastReply = '';
+    $('#voice-replay-button').disabled = true;
     const log = $('#voice-conversation');
     log.replaceChildren();
     const empty = create('div', 'voice-empty');
     empty.append(create('span', '', '⌁'), create('p', '', 'Conversation display cleared. The dedicated agent session remains private.'));
     log.append(empty);
+  });
+  $('#voice-replay-button').addEventListener('click', async () => {
+    if (!voice.lastReply) return;
+    if (!$('#voice-speech-toggle').checked) $('#voice-speech-toggle').checked = true;
+    await speakVoiceReply(voice.lastReply);
   });
   $('#memory-search').addEventListener('input', (event) => renderDocuments(event.target.value));
   $('#command-trigger').addEventListener('click', (event) => openPalette(event.currentTarget));
@@ -1315,7 +1399,7 @@ function bindEvents() {
     state.atlasRenderer?.setActive(state.view === 'atlas' && !document.hidden);
     if (!document.hidden && state.live && state.lastUpdated && Date.now() - state.lastUpdated.getTime() > 30_000) loadAll();
   });
-  window.addEventListener('pagehide', () => { interruptVoice(); stopAudioInput(); });
+  window.addEventListener('pagehide', () => { interruptVoice(); stopAudioInput(); voice.outputContext?.close().catch(() => {}); });
 }
 
 async function init() {
@@ -1326,7 +1410,6 @@ async function init() {
   navigate(location.hash.slice(1) || 'overview', { focus: false });
   await loadAll();
   await loadVoiceStatus();
-  if ('speechSynthesis' in window) speechSynthesis.getVoices();
   drawVoiceWaveform();
   connectEvents();
   setInterval(() => { if (state.live && !document.hidden) loadAll(); }, 20_000);

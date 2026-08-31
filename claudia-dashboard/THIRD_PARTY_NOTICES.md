@@ -39,3 +39,15 @@ installer pins and verifies both artifacts by SHA-256 before activation.
 
 The runtime and model files are installed outside this repository and are not
 included in either Git destination.
+
+## Piper and the Joe voice model
+
+Local reply synthesis uses [OHF-Voice Piper](https://github.com/OHF-Voice/piper1-gpl)
+v1.4.2 under the GNU General Public License v3.0. The installer pins Piper and
+keeps the runtime outside this repository.
+
+The `en_US-joe-medium` voice is downloaded from the
+[Piper voices collection](https://huggingface.co/rhasspy/piper-voices) at a fixed
+revision and verified by SHA-256. Its model card identifies the source dataset
+as [Nabu Casa voice-datasets](https://github.com/NabuCasa/voice-datasets) under
+CC0. Model files are installed outside both Git destinations.

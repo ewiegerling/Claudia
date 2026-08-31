@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   MAX_VOICE_AUDIO_BYTES,
+  MAX_VOICE_SPEECH_CHARACTERS,
+  normalizeSpeechText,
   parseOpenClawVoiceResponse,
   validatePcmWav,
 } from '../voice.mjs';
@@ -43,4 +45,11 @@ test('OpenClaw bridge parser returns only bounded assistant payload text', () =>
   assert.equal(parseOpenClawVoiceResponse(payload), 'Normal spoken answer.');
   assert.throws(() => parseOpenClawVoiceResponse('not json'), /malformed agent data/);
   assert.throws(() => parseOpenClawVoiceResponse('{}'), /empty voice response/);
+});
+
+test('local speech text is sanitized and bounded before Piper synthesis', () => {
+  const text = normalizeSpeechText('**Status:** [dashboard](https://private.invalid) `healthy`. https://example.com');
+  assert.equal(text, 'Status: dashboard healthy. link provided on screen');
+  assert.equal(normalizeSpeechText('x'.repeat(MAX_VOICE_SPEECH_CHARACTERS + 50)).length, MAX_VOICE_SPEECH_CHARACTERS);
+  assert.equal(normalizeSpeechText('```sh\nsecret command\n```'), 'code block omitted');
 });

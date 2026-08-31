@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Claudia Recovery">
+  <rect width="512" height="512" rx="112" fill="#080a0f"/>
+  <circle cx="256" cy="256" r="156" fill="none" stroke="#caff4a" stroke-width="18"/>
+  <circle cx="256" cy="256" r="30" fill="#caff4a"/>
+  <path d="M256 138v236M138 256h236" stroke="#caff4a" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="256" cy="256" r="78" fill="none" stroke="#ff7a1a" stroke-width="12" stroke-dasharray="32 18"/>
+</svg>
