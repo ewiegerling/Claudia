@@ -98,6 +98,23 @@ test('production-style browser audit', async (t) => {
       await page.close();
     });
 
+    await t.test('mission deck summarizes telemetry and only launches safe dashboard views', async () => {
+      const page = await browser.newPage(withHttpCredentials({ viewport: { width: 1440, height: 900 } }));
+      const errors = watchErrors(page);
+      await page.goto(`${BASE_URL}/`, { waitUntil: 'domcontentloaded' });
+      await waitForDashboard(page);
+      await page.locator('#mission-deck-title').waitFor({ state: 'visible' });
+      assert.match(await page.locator('#mission-services').innerText(), /^\d+\/\d+$/);
+      assert.match(await page.locator('#mission-memory').innerText(), /just now|\d+[mhd] ago|[A-Z][a-z]{2} \d+/i);
+      assert.match(await page.locator('#mission-signal-title').innerText(), /incidents|attention/i);
+      assert.equal(await page.locator('.mission-launcher').count(), 4);
+      await page.locator('.mission-launcher[data-nav="projects"]').click();
+      await page.locator('#view-projects').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('body').getAttribute('data-view'), 'projects');
+      assert.deepEqual(errors, []);
+      await page.close();
+    });
+
     await t.test('all primary views work from desktop navigation', async () => {
       const page = await browser.newPage(withHttpCredentials({ viewport: { width: 1280, height: 800 } }));
       const errors = watchErrors(page);

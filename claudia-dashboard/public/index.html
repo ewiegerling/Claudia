@@ -9,9 +9,9 @@
   <title>Claudia Dashboard</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/dashboard.css?v=5">
+  <link rel="stylesheet" href="/dashboard.css?v=6">
   <script src="/atlas.js?v=1" defer></script>
-  <script src="/dashboard.js?v=5" defer></script>
+  <script src="/dashboard.js?v=6" defer></script>
 </head>
 <body data-view="overview">
   <a class="skip-link" href="#main-content">Skip to dashboard</a>
@@ -102,13 +102,13 @@
         <section class="view active" id="view-overview" data-view-panel="overview" aria-labelledby="overview-title">
           <div class="hero-row">
             <div>
-              <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span><span id="hero-kicker">Live system intelligence</span></p>
+              <p class="eyebrow"><span class="live-dot" aria-hidden="true"></span><span id="hero-kicker">Mission telemetry initializing</span></p>
               <h1 id="overview-title"><span id="greeting">Hello</span>, operator.</h1>
-              <p class="hero-copy" id="hero-copy">Pulling the threads together. One elegant second.</p>
+              <p class="hero-copy" id="hero-copy">Calibrating the control plane. One elegant second.</p>
             </div>
             <div class="hero-status" id="hero-status" role="status" aria-live="polite">
               <span class="status-orbit" aria-hidden="true"><i></i></span>
-              <span><small>System state</small><strong id="overall-status">Connecting</strong></span>
+              <span><small>Control plane</small><strong id="overall-status">Connecting</strong></span>
             </div>
           </div>
 
@@ -134,6 +134,29 @@
               <span class="trend-badge" id="network-badge">LIVE</span>
             </article>
           </div>
+
+          <section class="mission-deck" aria-labelledby="mission-deck-title">
+            <div class="mission-intro">
+              <p class="section-kicker">Mission control</p>
+              <h2 id="mission-deck-title">What needs your attention</h2>
+              <p id="mission-headline">Waiting for live telemetry.</p>
+            </div>
+            <div class="mission-signal" id="mission-signal" data-state="connecting" role="status" aria-live="polite">
+              <span class="mission-signal-icon" aria-hidden="true">⌁</span>
+              <div><small>Priority signal</small><strong id="mission-signal-title">Connecting</strong><span id="mission-signal-detail">Checking the private control plane</span></div>
+            </div>
+            <div class="mission-readiness" aria-label="Operational readiness">
+              <div><small>Services</small><strong id="mission-services">—</strong><span id="mission-services-detail">Checking units</span></div>
+              <div><small>Memory signal</small><strong id="mission-memory">—</strong><span id="mission-memory-detail">Checking vault freshness</span></div>
+              <div><small>Dashboard</small><strong id="mission-dashboard">—</strong><span id="mission-dashboard-detail">Checking response path</span></div>
+            </div>
+            <div class="mission-launchers" aria-label="Mission shortcuts">
+              <button class="mission-launcher" type="button" data-nav="voice"><span aria-hidden="true">◉</span><strong>Talk to Claudia</strong><small>Voice Terminal</small></button>
+              <button class="mission-launcher" type="button" data-nav="projects"><span aria-hidden="true">↗</span><strong>Review work</strong><small>Active projects</small></button>
+              <button class="mission-launcher" type="button" data-nav="atlas"><span aria-hidden="true">✦</span><strong>Trace context</strong><small>Brain Atlas</small></button>
+              <button class="mission-launcher" type="button" data-nav="settings"><span aria-hidden="true">⌘</span><strong>Secure access</strong><small>Dashboard settings</small></button>
+            </div>
+          </section>
 
           <div class="bento-grid">
             <article class="panel pulse-panel">

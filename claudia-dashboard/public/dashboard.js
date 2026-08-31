@@ -224,7 +224,33 @@ function renderDashboard() {
   setText('#memory-updated', formatRelative(memory?.lastUpdated));
 
   renderServices(services);
+  renderMissionDeck({ overall, services, memory, application, alerts: data.alerts || [] });
   if (application?.responseMs) setText('#network-badge', `${application.responseMs}MS`);
+}
+
+function renderMissionDeck({ overall, services, memory, application, alerts }) {
+  const online = services.filter((service) => service.status === 'online').length;
+  const unavailable = services.filter((service) => service.status === 'offline' || service.status === 'unknown');
+  const signal = $('#mission-signal');
+  const headline = overall === 'nominal'
+    ? 'Everything important is green. That almost never happens by accident.'
+    : overall === 'degraded'
+      ? 'One part of the control plane needs a closer look.'
+      : 'There is an active problem. Start with the priority signal.';
+  const signalTitle = overall === 'nominal' ? 'No active incidents' : overall === 'degraded' ? 'Attention advised' : 'Immediate attention';
+  const signalDetail = alerts[0]?.title || (overall === 'nominal'
+    ? 'Telemetry, private services, and memory are reporting normally.'
+    : unavailable.map((service) => service.name).join(', ') || 'A system check is still incomplete.');
+  signal.dataset.state = overall;
+  setText('#mission-headline', headline);
+  setText('#mission-signal-title', signalTitle);
+  setText('#mission-signal-detail', signalDetail);
+  setText('#mission-services', `${online}/${services.length}`);
+  setText('#mission-services-detail', unavailable.length ? `${unavailable.length} needs review` : 'All reported services online');
+  setText('#mission-memory', formatRelative(memory?.lastUpdated));
+  setText('#mission-memory-detail', `${formatNumber(memory?.documents)} documents · ${formatNumber(memory?.words)} words`);
+  setText('#mission-dashboard', application?.responseMs ? `${application.responseMs} ms` : '—');
+  setText('#mission-dashboard-detail', `${formatNumber(application?.liveClients)} live ${Number(application?.liveClients) === 1 ? 'client' : 'clients'} · read-only`);
 }
 
 function renderServices(services) {
